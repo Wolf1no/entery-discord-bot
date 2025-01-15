@@ -40,13 +40,14 @@ async def get_channel_id(channel_name):
 async def get_vips(channel_id):
     vips = []
     try:
-        async for vip in twitch.get_channel_vips(channel_id):
+        vips_data = await twitch.get_channel_vips(channel_id)
+        for vip in vips_data.get('data', []):
             vips.append(vip['user_login'].lower())
         return vips
     except Exception as e:
         logger.error(f"Error getting VIPs: {e}")
         raise
-
+        
 @tasks.loop(minutes=5)
 async def sync_vip_roles():
     try:
