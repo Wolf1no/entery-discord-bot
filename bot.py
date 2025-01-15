@@ -31,8 +31,10 @@ twitch = Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
 
 async def get_channel_id(channel_name):
     try:
-        users = await twitch.get_users(logins=[channel_name])
-        return users['data'][0]['id']
+        users = []
+        async for user in twitch.get_users(logins=[channel_name]):
+            users.append(user)
+        return users[0]['id']
     except Exception as e:
         logger.error(f"Error getting channel ID: {e}")
         raise
