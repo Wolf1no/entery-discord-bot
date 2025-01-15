@@ -23,6 +23,7 @@ DISCORD_VIP_ROLE_ID = int(os.environ['DISCORD_VIP_ROLE_ID'])
 # Initialize Discord bot
 intents = discord.Intents.default()
 intents.members = True
+intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Initialize Twitch API
