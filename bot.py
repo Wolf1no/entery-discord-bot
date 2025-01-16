@@ -118,10 +118,10 @@ async def force_sync(ctx):
     await sync_vip_roles()
     await ctx.send("✅ Sync complete!")
 
-async def get_channel_id(twitch_channel_name):
+async def get_channel_id(channel_name):
     try:
         # Handle the response correctly
-        response = await twitch.get_users(logins=[twitch_channel_name])
+        response = await twitch.get_users(logins=[channel_name])
         logger.debug(f"get_users response: {response}")
         
         # Check if we have data in the response
@@ -130,10 +130,10 @@ async def get_channel_id(twitch_channel_name):
         else:
             # If response is an async generator, handle it differently
             async for user in response:
-                if user.get('login', '').lower() == twitch_channel_name.lower():
+                if user.get('login', '').lower() == channel_name.lower():
                     return user.get('id')
                 
-        logger.error(f"Channel {twitch_channel_name} not found")
+        logger.error(f"Channel {channel_name} not found")
         return None
     except Exception as e:
         logger.error(f"Error getting channel ID: {e}")
