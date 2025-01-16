@@ -28,10 +28,26 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # Initialize Twitch API with authentication
 async def initialize_twitch():
     global twitch
-    twitch = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-    await twitch.authenticate_app([])
-    logger.info("Twitch API authenticated successfully")
-    return twitch
+    try:
+        # Add debug logging for credential presence
+        if not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
+            logger.error("Twitch credentials are missing or empty")
+            return None
+            
+        logger.info("Attempting Twitch authentication...")
+        twitch = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
+        
+        # Specify required scopes
+        required_scopes = ['channel:read:vips']
+        await twitch.authenticate_app(required_scopes)
+        
+        logger.info("Twitch API authenticated successfully")
+        return twitch
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize Twitch API: {str(e)}")
+        logger.debug(f"Client ID length: {len(TWITCH_CLIENT_ID)}, Secret length: {len(TWITCH_CLIENT_SECRET)}")
+        return None
 
 async def get_channel_id(channel_name):
     try:
