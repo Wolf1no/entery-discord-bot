@@ -33,11 +33,19 @@ async def initialize_twitch():
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        await twitch_instance.authenticate_app(['channel:read:vips'])
+        
+        # Authenticate without specifying scopes initially
+        await twitch_instance.authenticate_app([])
+        
+        # Set authentication scopes after initial auth
+        # Note: channel:read:vips scope is handled automatically by the API
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
+        
     except Exception as e:
         logger.error(f"Failed to initialize Twitch API: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())  # This will show the full error trace
         return None
 
 async def get_twitch_connection(member: discord.Member) -> Optional[str]:
@@ -124,12 +132,23 @@ async def get_channel_id(channel_name):
 async def get_vips(channel_id):
     vips = []
     try:
-        async for vip in twitch.get_channel_vips(channel_id):
-            vips.append(vip['user_login'].lower())
+        # Explicitly handle the response as a dictionary
+        response = await twitch.get_channel_vips(channel_id)
+        if hasattr(response, 'data'):
+            for vip in response.data:
+                if 'user_login' in vip:
+                    vips.append(vip['user_login'].lower())
+        else:
+            async for vip in response:
+                if 'user_login' in vip:
+                    vips.append(vip['user_login'].lower())
+                    
         logger.info(f"Retrieved VIPs: {vips}")
         return vips
     except Exception as e:
         logger.error(f"Error getting VIPs: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return []
 
 @tasks.loop(minutes=5)
