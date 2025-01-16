@@ -1,8 +1,6 @@
 import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
-from twitchAPI.helper import first
-from twitchAPI.types import AuthScope
 import asyncio
 import os
 import logging
@@ -31,17 +29,17 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 async def initialize_twitch():
     global twitch
     twitch = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-    await twitch.authenticate_app([AuthScope.CHANNEL_READ_VIP])
+    await twitch.authenticate_app([])
     logger.info("Twitch API authenticated successfully")
     return twitch
 
 async def get_channel_id(channel_name):
     try:
-        users = await first(twitch.get_users(logins=[channel_name]))
-        if users is None:
+        users = await twitch.get_users(logins=[channel_name])
+        if not users['data']:
             logger.error(f"Channel {channel_name} not found")
             return None
-        return users.id
+        return users['data'][0]['id']
     except Exception as e:
         logger.error(f"Error getting channel ID: {e}")
         raise
@@ -50,7 +48,7 @@ async def get_vips(channel_id):
     vips = []
     try:
         async for vip in twitch.get_channel_vips(channel_id):
-            vips.append(vip.user_login.lower())
+            vips.append(vip['user_login'].lower())
         return vips
     except Exception as e:
         logger.error(f"Error getting VIPs: {e}")
