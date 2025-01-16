@@ -120,28 +120,49 @@ async def force_sync(ctx):
 
 async def get_channel_id(channel_name):
     try:
-        users = await twitch.get_users(logins=[channel_name])
-        if not users['data']:
-            logger.error(f"Channel {channel_name} not found")
-            return None
-        return users['data'][0]['id']
+        # Handle the response correctly
+        response = await twitch.get_users(logins=[channel_name])
+        logger.debug(f"get_users response: {response}")
+        
+        # Check if we have data in the response
+        if hasattr(response, 'data') and response.data:
+            return response.data[0].id
+        else:
+            # If response is an async generator, handle it differently
+            async for user in response:
+                if user.get('login', '').lower() == channel_name.lower():
+                    return user.get('id')
+                
+        logger.error(f"Channel {channel_name} not found")
+        return None
     except Exception as e:
         logger.error(f"Error getting channel ID: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 async def get_vips(channel_id):
     vips = []
     try:
-        # Explicitly handle the response as a dictionary
+        logger.info(f"Fetching VIPs for channel ID: {channel_id}")
+        
+        # Handle the VIP response
         response = await twitch.get_channel_vips(channel_id)
-        if hasattr(response, 'data'):
-            for vip in response.data:
-                if 'user_login' in vip:
-                    vips.append(vip['user_login'].lower())
-        else:
+        
+        # If response is an async generator
+        if hasattr(response, '__aiter__'):
             async for vip in response:
-                if 'user_login' in vip:
+                if isinstance(vip, dict) and 'user_login' in vip:
                     vips.append(vip['user_login'].lower())
+                elif hasattr(vip, 'user_login'):
+                    vips.append(vip.user_login.lower())
+        # If response is a direct object
+        elif hasattr(response, 'data'):
+            for vip in response.data:
+                if isinstance(vip, dict) and 'user_login' in vip:
+                    vips.append(vip['user_login'].lower())
+                elif hasattr(vip, 'user_login'):
+                    vips.append(vip.user_login.lower())
                     
         logger.info(f"Retrieved VIPs: {vips}")
         return vips
@@ -156,6 +177,7 @@ async def sync_vip_roles():
     try:
         global twitch
         if twitch is None:
+            logger.warning("Attempting to reinitialize Twitch API...")
             twitch = await initialize_twitch()
             if twitch is None:
                 logger.error("Failed to initialize Twitch API")
@@ -171,11 +193,15 @@ async def sync_vip_roles():
             logger.error(f"Could not find VIP role with ID {DISCORD_VIP_ROLE_ID}")
             return
 
+        # Add debug logging for channel name
+        logger.info(f"Looking up channel ID for: {TWITCH_CHANNEL_NAME}")
         channel_id = await get_channel_id(TWITCH_CHANNEL_NAME)
+        
         if not channel_id:
             logger.error("Could not get channel ID")
             return
 
+        logger.info(f"Successfully found channel ID: {channel_id}")
         vips = await get_vips(channel_id)
         logger.info(f"Retrieved {len(vips)} VIPs from Twitch")
 
@@ -193,17 +219,8 @@ async def sync_vip_roles():
 
     except Exception as e:
         logger.error(f"Error in sync_vip_roles: {e}")
-
-@bot.event
-async def on_ready():
-    logger.info(f'Bot is ready: {bot.user.name}')
-    global twitch
-    twitch = await initialize_twitch()
-    if twitch is None:
-        logger.error("Failed to initialize Twitch API during startup")
-    else:
-        sync_vip_roles.start()
-        logger.info("VIP role sync started")
+        import traceback
+        logger.error(traceback.format_exc())
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
