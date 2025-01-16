@@ -19,16 +19,16 @@ DISCORD_TOKEN = os.environ['DISCORD_TOKEN']
 TWITCH_CHANNEL_NAME = os.environ['TWITCH_CHANNEL_NAME']
 DISCORD_GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
 DISCORD_VIP_ROLE_ID = int(os.environ['DISCORD_VIP_ROLE_ID'])
-ACCESS_TOKEN = os.getenv("TWITCH_ACCESS_TOKEN")
+TWITCH_ACCESS_TOKEN = os.getenv("TWITCH_ACCESS_TOKEN")
 
-if not CLIENT_ID or not CLIENT_SECRET or not ACCESS_TOKEN:
+if not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET or not TWITCH_ACCESS_TOKEN:
     raise ValueError("Missing Twitch API credentials!")
 
 try:
     # Initialize Twitch API with access token
-    twitch = Twitch(CLIENT_ID, CLIENT_SECRET)
+    twitch = Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
     twitch.authenticate_app([])  # No scopes needed for basic app auth
-    twitch.set_user_authentication(ACCESS_TOKEN, ["channel:read:vips", "moderator:read:chatters"], "")
+    twitch.set_user_authentication(TWITCH_ACCESS_TOKEN, ["channel:read:vips", "moderator:read:chatters"], "")
 
     print("Twitch API initialized successfully!")
 
