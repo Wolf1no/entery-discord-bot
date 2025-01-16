@@ -1,6 +1,8 @@
 import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
+from twitchAPI.helper import first
+from twitchAPI.types import AuthScope
 import asyncio
 import os
 import logging
@@ -23,18 +25,23 @@ DISCORD_VIP_ROLE_ID = int(os.environ['DISCORD_VIP_ROLE_ID'])
 # Initialize Discord bot
 intents = discord.Intents.default()
 intents.members = True
-intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Initialize Twitch API
-twitch = Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
+# Initialize Twitch API with authentication
+async def initialize_twitch():
+    global twitch
+    twitch = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
+    await twitch.authenticate_app([AuthScope.CHANNEL_READ_VIP])
+    logger.info("Twitch API authenticated successfully")
+    return twitch
 
 async def get_channel_id(channel_name):
     try:
-        users = []
-        async for user in twitch.get_users(logins=[channel_name]):
-            users.append(user)
-        return users[0]['id']
+        users = await first(twitch.get_users(logins=[channel_name]))
+        if users is None:
+            logger.error(f"Channel {channel_name} not found")
+            return None
+        return users.id
     except Exception as e:
         logger.error(f"Error getting channel ID: {e}")
         raise
@@ -42,14 +49,13 @@ async def get_channel_id(channel_name):
 async def get_vips(channel_id):
     vips = []
     try:
-        vips_data = await twitch.get_channel_vips(channel_id)
-        for vip in vips_data.get('data', []):
-            vips.append(vip['user_login'].lower())
+        async for vip in twitch.get_channel_vips(channel_id):
+            vips.append(vip.user_login.lower())
         return vips
     except Exception as e:
         logger.error(f"Error getting VIPs: {e}")
         raise
-        
+
 @tasks.loop(minutes=5)
 async def sync_vip_roles():
     try:
@@ -64,6 +70,9 @@ async def sync_vip_roles():
             return
         
         channel_id = await get_channel_id(TWITCH_CHANNEL_NAME)
+        if channel_id is None:
+            return
+            
         twitch_vips = await get_vips(channel_id)
         
         for member in guild.members:
@@ -86,6 +95,8 @@ async def sync_vip_roles():
 @bot.event
 async def on_ready():
     logger.info(f'Bot is ready: {bot.user.name}')
+    # Initialize Twitch API when bot starts
+    await initialize_twitch()
     sync_vip_roles.start()
 
 if __name__ == "__main__":
