@@ -5,6 +5,17 @@ import asyncio
 import os
 import logging
 
+print("DEBUG: TWITCH_CLIENT_ID =", os.getenv("TWITCH_CLIENT_ID"))
+print("DEBUG: TWITCH_CLIENT_SECRET =", os.getenv("TWITCH_CLIENT_SECRET"))
+print("DEBUG: TWITCH_ACCESS_TOKEN =", os.getenv("TWITCH_ACCESS_TOKEN"))
+
+if not os.getenv("TWITCH_CLIENT_ID"):
+    print("ERROR: TWITCH_CLIENT_ID is missing!")
+if not os.getenv("TWITCH_CLIENT_SECRET"):
+    print("ERROR: TWITCH_CLIENT_SECRET is missing!")
+if not os.getenv("TWITCH_ACCESS_TOKEN"):
+    print("ERROR: TWITCH_ACCESS_TOKEN is missing!")
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
