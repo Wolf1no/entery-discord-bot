@@ -33,11 +33,30 @@ async def initialize_twitch():
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        await twitch_instance.authenticate_app([])
+        
+        # Explicitly specify the required scopes for VIP access
+        required_scopes = [
+            'channel:read:vips',
+            'moderator:read:chatters'
+        ]
+        
+        logger.info(f"Authenticating with scopes: {required_scopes}")
+        await twitch_instance.authenticate_app(required_scopes)
+        
+        # Verify authentication
+        logger.info("Testing API access...")
+        try:
+            users = await twitch_instance.get_users(logins=[TWITCH_CHANNEL_NAME])
+            logger.info("API access test successful")
+        except Exception as e:
+            logger.error(f"API access test failed: {e}")
+            return None
+            
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
     except Exception as e:
         logger.error(f"Failed to initialize Twitch API: {str(e)}")
+        logger.error(f"Make sure your application has the required scopes enabled")
         return None
 
 async def get_channel_id(channel_name):
