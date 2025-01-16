@@ -25,32 +25,28 @@ intents = discord.Intents.default()
 intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Initialize Twitch API with authentication
+# Global variable to store Twitch instance
+twitch = None
+
 async def initialize_twitch():
     global twitch
     try:
-        # Add debug logging for credential presence
-        if not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
-            logger.error("Twitch credentials are missing or empty")
-            return None
-            
         logger.info("Attempting Twitch authentication...")
-        twitch = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        
-        # Specify required scopes
-        required_scopes = ['channel:read:vips']
-        await twitch.authenticate_app(required_scopes)
-        
+        twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
+        await twitch_instance.authenticate_app([])
         logger.info("Twitch API authenticated successfully")
-        return twitch
-        
+        return twitch_instance
     except Exception as e:
         logger.error(f"Failed to initialize Twitch API: {str(e)}")
-        logger.debug(f"Client ID length: {len(TWITCH_CLIENT_ID)}, Secret length: {len(TWITCH_CLIENT_SECRET)}")
         return None
 
 async def get_channel_id(channel_name):
+    global twitch
     try:
+        if twitch is None:
+            logger.error("Twitch API not initialized")
+            return None
+        
         users = await twitch.get_users(logins=[channel_name])
         if not users['data']:
             logger.error(f"Channel {channel_name} not found")
@@ -58,26 +54,39 @@ async def get_channel_id(channel_name):
         return users['data'][0]['id']
     except Exception as e:
         logger.error(f"Error getting channel ID: {e}")
-        raise
+        return None
 
 async def get_vips(channel_id):
+    global twitch
     vips = []
     try:
+        if twitch is None:
+            logger.error("Twitch API not initialized")
+            return []
+            
         async for vip in twitch.get_channel_vips(channel_id):
             vips.append(vip['user_login'].lower())
         return vips
     except Exception as e:
         logger.error(f"Error getting VIPs: {e}")
-        raise
+        return []
 
 @tasks.loop(minutes=5)
 async def sync_vip_roles():
+    global twitch
     try:
+        if twitch is None:
+            logger.warning("Attempting to reinitialize Twitch API...")
+            twitch = await initialize_twitch()
+            if twitch is None:
+                logger.error("Failed to reinitialize Twitch API")
+                return
+
         guild = bot.get_guild(DISCORD_GUILD_ID)
         if not guild:
             logger.error(f"Could not find guild with ID {DISCORD_GUILD_ID}")
             return
-
+            
         vip_role = guild.get_role(DISCORD_VIP_ROLE_ID)
         if not vip_role:
             logger.error(f"Could not find VIP role with ID {DISCORD_VIP_ROLE_ID}")
@@ -93,25 +102,28 @@ async def sync_vip_roles():
             if len(member.activities) > 0:
                 for activity in member.activities:
                     if isinstance(activity, discord.Streaming):
-                        twitch_name = activity.twitch_name.lower()
+                        twitch_name = activity.twitch_name.lower() if activity.twitch_name else None
                         
-                        if twitch_name in twitch_vips and vip_role not in member.roles:
+                        if twitch_name and twitch_name in twitch_vips and vip_role not in member.roles:
                             await member.add_roles(vip_role)
                             logger.info(f"Added VIP role to {member.name}")
                         
-                        elif twitch_name not in twitch_vips and vip_role in member.roles:
+                        elif twitch_name and twitch_name not in twitch_vips and vip_role in member.roles:
                             await member.remove_roles(vip_role)
                             logger.info(f"Removed VIP role from {member.name}")
-
     except Exception as e:
         logger.error(f"Error in sync_vip_roles: {e}")
 
 @bot.event
 async def on_ready():
+    global twitch
     logger.info(f'Bot is ready: {bot.user.name}')
     # Initialize Twitch API when bot starts
-    await initialize_twitch()
-    sync_vip_roles.start()
+    twitch = await initialize_twitch()
+    if twitch is None:
+        logger.error("Failed to initialize Twitch API during startup")
+    else:
+        sync_vip_roles.start()
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
