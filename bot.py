@@ -174,9 +174,9 @@ async def check_status(ctx):
     if channel_id:
         vips = await get_vips(channel_id)
         if twitch_username.lower() in vips:
-            await ctx.send(f"✅ Máš VIP! {TWITCH_CHANNEL_NAME}")
+            await ctx.send(f"✅ Máš VIP na kanále {TWITCH_CHANNEL_NAME}")
         else:
-            await ctx.send(f"❌ Nemáš VIP :( {TWITCH_CHANNEL_NAME}")
+            await ctx.send(f"❌ Nemáš VIP na kanále {TWITCH_CHANNEL_NAME}")
     
     # Check Discord role
     guild = ctx.guild
