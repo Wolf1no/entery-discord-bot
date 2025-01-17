@@ -104,6 +104,7 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Getting VIPs for channel ID: {channel_id}")
+        # Don't await the get_vips call, but await inside the loop
         vips_data = twitch.get_vips(broadcaster_id=channel_id)
         async for vip in vips_data:
             vips.append(vip.user_login.lower())
@@ -121,6 +122,7 @@ async def get_subscribers(channel_id):
     subscribers = []
     try:
         logger.info(f"Getting subscribers for channel ID: {channel_id}")
+        # Don't await the get_broadcaster_subscriptions call, but await inside the loop
         subs_data = twitch.get_broadcaster_subscriptions(broadcaster_id=channel_id)
         async for sub in subs_data:
             subscribers.append(sub.user_login.lower())
