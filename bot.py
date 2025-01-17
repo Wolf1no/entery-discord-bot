@@ -81,14 +81,15 @@ async def get_vips(channel_id):
     try:
         logger.info(f"Fetching VIPs for channel ID: {channel_id}")
         
-        # Get VIPs as an async generator
-        vips_generator = twitch.get_channel_vips(channel_id)
+        # Use get_vips instead of get_channel_vips
+        vips_generator = twitch.get_vips(broadcaster_id=channel_id)
         
         # Iterate through the generator to collect VIPs
         async for vip in vips_generator:
             vips.append(vip.user_login.lower())
+            logger.debug(f"Found VIP: {vip.user_login}")
             
-        logger.info(f"Retrieved VIPs: {vips}")
+        logger.info(f"Retrieved {len(vips)} VIPs: {vips}")
         return vips
     except Exception as e:
         logger.error(f"Error getting VIPs: {e}")
