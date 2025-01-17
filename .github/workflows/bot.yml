@@ -3,33 +3,28 @@ name: Run Discord Bot
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.x'
+        python-version: '3.9'
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install PyNaCl  # Explicitly install PyNaCl
+        pip install discord.py twitchAPI
     - name: Run bot
       env:
         DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
         TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
         TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
-        TWITCH_CHANNEL_NAME: ${{ secrets.TWITCH_CHANNEL_NAME }}
         DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
         DISCORD_VIP_ROLE_ID: ${{ secrets.DISCORD_VIP_ROLE_ID }}
-        TWITCH_USER_TOKEN: ${{ secrets.TWITCH_USER_TOKEN }}
-        TWITCH_REFRESH_TOKEN: ${{ secrets.TWITCH_REFRESH_TOKEN }}
-        CI: true
+        DISCORD_SUB_ROLE_ID: ${{ secrets.DISCORD_SUB_ROLE_ID }}
+        TWITCH_CHANNEL_NAME: ${{ secrets.TWITCH_CHANNEL_NAME }}
       run: python bot.py
