@@ -70,15 +70,22 @@ async def initialize_twitch():
         twitch_instance = await auth_manager.initialize()
         
         if twitch_instance:
-            logger.info("Twitch API authenticated successfully")
-            twitch = twitch_instance
-            return twitch_instance
+            # Make sure we have valid user authentication
+            if hasattr(twitch_instance, 'has_user_auth') and twitch_instance.has_user_auth:
+                logger.info("Twitch API authenticated successfully with user auth")
+                twitch = twitch_instance
+                return twitch_instance
+            else:
+                logger.warning("Twitch API initialized but missing user authentication")
+                if DISCORD_MOD_CHANNEL_ID:
+                    channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
+                    if channel:
+                        await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
+                return None
         else:
-            if DISCORD_MOD_CHANNEL_ID:
-                channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
-                if channel:
-                    await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
+            logger.error("Failed to initialize Twitch API")
             return None
+            
     except Exception as e:
         logger.error(f"Failed to initialize Twitch API: {e}")
         logger.error(traceback.format_exc())
@@ -104,36 +111,68 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Getting VIPs for channel ID: {channel_id}")
-        # Don't await the get_vips call, but await inside the loop
-        vips_data = twitch.get_vips(broadcaster_id=channel_id)
-        async for vip in vips_data:
-            vips.append(vip.user_login.lower())
-        logger.info(f"Found {len(vips)} VIPs")
+        
+        # Make sure we have valid authentication
+        if not twitch or not hasattr(twitch, 'has_user_auth') or not twitch.has_user_auth:
+            if DISCORD_MOD_CHANNEL_ID:
+                channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
+                if channel:
+                    await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
+            return []
+        
+        try:
+            # Get VIPs with proper await
+            vips_data = await twitch.get_vips(broadcaster_id=channel_id)
+            if isinstance(vips_data, list):
+                for vip in vips_data:
+                    vips.append(vip.user_login.lower())
+            logger.info(f"Found {len(vips)} VIPs")
+        except Exception as api_error:
+            logger.error(f"API Error getting VIPs: {api_error}")
+            if "require user authentication" in str(api_error):
+                if DISCORD_MOD_CHANNEL_ID:
+                    channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
+                    if channel:
+                        await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
+        
         return vips
+        
     except Exception as e:
         logger.error(f"Error getting VIPs: {e}", exc_info=True)
-        if "require user authentication" in str(e) and DISCORD_MOD_CHANNEL_ID:
-            channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
-            if channel:
-                await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
         return []
 
 async def get_subscribers(channel_id):
     subscribers = []
     try:
         logger.info(f"Getting subscribers for channel ID: {channel_id}")
-        # Don't await the get_broadcaster_subscriptions call, but await inside the loop
-        subs_data = twitch.get_broadcaster_subscriptions(broadcaster_id=channel_id)
-        async for sub in subs_data:
-            subscribers.append(sub.user_login.lower())
-        logger.info(f"Found {len(subscribers)} subscribers")
+        
+        # Make sure we have valid authentication
+        if not twitch or not hasattr(twitch, 'has_user_auth') or not twitch.has_user_auth:
+            if DISCORD_MOD_CHANNEL_ID:
+                channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
+                if channel:
+                    await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
+            return []
+        
+        try:
+            # Get subscribers with proper await
+            subs_data = await twitch.get_broadcaster_subscriptions(broadcaster_id=channel_id)
+            if isinstance(subs_data, list):
+                for sub in subs_data:
+                    subscribers.append(sub.user_login.lower())
+            logger.info(f"Found {len(subscribers)} subscribers")
+        except Exception as api_error:
+            logger.error(f"API Error getting subscribers: {api_error}")
+            if "require user authentication" in str(api_error):
+                if DISCORD_MOD_CHANNEL_ID:
+                    channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
+                    if channel:
+                        await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
+        
         return subscribers
+        
     except Exception as e:
         logger.error(f"Error getting subscribers: {e}", exc_info=True)
-        if "require user authentication" in str(e) and DISCORD_MOD_CHANNEL_ID:
-            channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
-            if channel:
-                await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
         return []
 
 @tasks.loop(hours=24)
