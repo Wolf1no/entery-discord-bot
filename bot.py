@@ -63,11 +63,8 @@ async def initialize_twitch():
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        # Use AuthScope enum values instead of strings
-        await twitch_instance.authenticate_app([
-            AuthScope.CHANNEL_READ_SUBSCRIPTIONS,
-            AuthScope.CHANNEL_READ_VIPS
-        ])
+        # No scopes needed for basic app authentication in this version
+        await twitch_instance.authenticate_app([])
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
     except Exception as e:
@@ -110,7 +107,7 @@ async def get_subscribers(channel_id):
     subscribers = []
     try:
         logger.info(f"Getting subscribers for channel ID: {channel_id}")
-        subs_data = twitch.get_broadcaster_subscriptions(channel_id)  # Changed method name
+        subs_data = twitch.get_subscriptions(channel_id)  # Changed to get_subscriptions
         async for sub in subs_data:
             subscribers.append(sub.user_login.lower())
         logger.info(f"Found {len(subscribers)} subscribers")
