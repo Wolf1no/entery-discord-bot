@@ -76,20 +76,15 @@ async def initialize_twitch():
 async def get_channel_id(channel_name):
     try:
         logger.info(f"Getting channel ID for: {channel_name}")
-async def get_channel_id(channel_name):
-    try:
-        logger.info(f"Getting channel ID for: {channel_name}")
-        users = twitch.get_users(logins=[channel_name])  # Remove await here
+        users = twitch.get_users(logins=[channel_name])
         
-        async for user in users:  # Use async for to iterate through the generator
+        async for user in users:
             if user.login.lower() == channel_name.lower():
                 logger.info(f"Found channel ID: {user.id} for user: {user.login}")
                 return user.id
-            break  # We only need the first user
         
         logger.warning(f"No user found for channel name: {channel_name}")
         return None
-        
     except Exception as e:
         logger.error(f"Error getting channel ID: {e}", exc_info=True)
         return None
@@ -111,7 +106,7 @@ async def get_subscribers(channel_id):
     subscribers = []
     try:
         logger.info(f"Getting subscribers for channel ID: {channel_id}")
-        subs_data = twitch.get_subscriptions(channel_id)  # Changed to get_subscriptions
+        subs_data = twitch.get_subscriptions(channel_id)
         async for sub in subs_data:
             subscribers.append(sub.user_login.lower())
         logger.info(f"Found {len(subscribers)} subscribers")
@@ -119,7 +114,7 @@ async def get_subscribers(channel_id):
     except Exception as e:
         logger.error(f"Error getting subscribers: {e}", exc_info=True)
         return []
-
+        
 @tasks.loop(hours=24)
 async def sync_roles_task():
     try:
