@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import UserAuthenticator
-from twitchAPI.types import AuthScope
+from twitchAPI.type import AuthScope
 import asyncio
 import os
 import json
