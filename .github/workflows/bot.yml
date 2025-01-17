@@ -20,6 +20,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install PyNaCl  # Explicitly install PyNaCl
     - name: Run bot
       env:
         DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
@@ -28,5 +29,7 @@ jobs:
         TWITCH_CHANNEL_NAME: ${{ secrets.TWITCH_CHANNEL_NAME }}
         DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
         DISCORD_VIP_ROLE_ID: ${{ secrets.DISCORD_VIP_ROLE_ID }}
+        TWITCH_USER_TOKEN: ${{ secrets.TWITCH_USER_TOKEN }}
+        TWITCH_REFRESH_TOKEN: ${{ secrets.TWITCH_REFRESH_TOKEN }}
         CI: true
       run: python bot.py
