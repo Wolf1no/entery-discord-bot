@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
-from twitchAPI.types import AuthScope
+from twitchAPI.helper import first
 import asyncio
 import os
 import json
@@ -61,8 +61,8 @@ async def initialize_twitch():
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        # Use proper AuthScope enums
-        await twitch_instance.authenticate_app([AuthScope.MODERATOR_READ_VIPS])
+        # Authenticate without specific scopes
+        await twitch_instance.authenticate_app([])
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
     except Exception as e:
