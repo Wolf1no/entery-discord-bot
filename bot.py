@@ -9,6 +9,7 @@ import logging
 import traceback
 from typing import Optional, Dict
 from datetime import datetime
+from twitch_auth import TwitchAuthManager
 
 # Set up logging
 logging.basicConfig(
@@ -24,10 +25,12 @@ DISCORD_TOKEN = os.environ['DISCORD_TOKEN']
 TWITCH_CHANNEL_NAME = os.environ['TWITCH_CHANNEL_NAME']
 DISCORD_GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
 DISCORD_VIP_ROLE_ID = int(os.environ['DISCORD_VIP_ROLE_ID'])
-DISCORD_SUB_ROLE_ID = int(os.environ.get('DISCORD_SUB_ROLE_ID', 0))  # Optional subscriber role
+DISCORD_SUB_ROLE_ID = int(os.environ.get('DISCORD_SUB_ROLE_ID', 0))
+DISCORD_MOD_CHANNEL_ID = int(os.environ.get('DISCORD_MOD_CHANNEL_ID', 0))
 
 # File paths
 VERIFIED_USERS_FILE = 'verified_users.json'
+TOKEN_FILE = 'twitch_tokens.json'
 
 # Initialize Discord bot
 intents = discord.Intents.default()
@@ -37,6 +40,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Global variables
 twitch = None
+auth_manager = None
 verified_users: Dict[str, str] = {}
 
 def load_verified_users():
@@ -59,13 +63,22 @@ def save_verified_users():
         logger.error(f"Error saving verified users: {e}")
 
 async def initialize_twitch():
+    global auth_manager, twitch
     try:
         logger.info("Attempting Twitch authentication...")
-        twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        # For app-level authentication only
-        await twitch_instance.authenticate_app([])
-        logger.info("Twitch API authenticated successfully")
-        return twitch_instance
+        auth_manager = TwitchAuthManager(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL_NAME)
+        twitch_instance = await auth_manager.initialize()
+        
+        if twitch_instance:
+            logger.info("Twitch API authenticated successfully")
+            twitch = twitch_instance
+            return twitch_instance
+        else:
+            if DISCORD_MOD_CHANNEL_ID:
+                channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
+                if channel:
+                    await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
+            return None
     except Exception as e:
         logger.error(f"Failed to initialize Twitch API: {e}")
         logger.error(traceback.format_exc())
@@ -91,7 +104,6 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Getting VIPs for channel ID: {channel_id}")
-        # Remove await from here since it's an async generator
         vips_data = twitch.get_vips(broadcaster_id=channel_id)
         async for vip in vips_data:
             vips.append(vip.user_login.lower())
@@ -99,15 +111,29 @@ async def get_vips(channel_id):
         return vips
     except Exception as e:
         logger.error(f"Error getting VIPs: {e}", exc_info=True)
+        if "require user authentication" in str(e) and DISCORD_MOD_CHANNEL_ID:
+            channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
+            if channel:
+                await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
         return []
 
 async def get_subscribers(channel_id):
-    # Since we can't get subscribers without user authentication
-    # and we're using app-only auth, return empty list
-    return []
-    # If you want to implement subscriber checking later,
-    # you'll need to implement OAuth user authentication
-        
+    subscribers = []
+    try:
+        logger.info(f"Getting subscribers for channel ID: {channel_id}")
+        subs_data = twitch.get_broadcaster_subscriptions(broadcaster_id=channel_id)
+        async for sub in subs_data:
+            subscribers.append(sub.user_login.lower())
+        logger.info(f"Found {len(subscribers)} subscribers")
+        return subscribers
+    except Exception as e:
+        logger.error(f"Error getting subscribers: {e}", exc_info=True)
+        if "require user authentication" in str(e) and DISCORD_MOD_CHANNEL_ID:
+            channel = bot.get_channel(DISCORD_MOD_CHANNEL_ID)
+            if channel:
+                await channel.send("⚠️ Je potřeba obnovit Twitch autorizaci! Použij příkaz `!setupauth`")
+        return []
+
 @tasks.loop(hours=24)
 async def sync_roles_task():
     try:
@@ -188,6 +214,72 @@ async def on_ready():
         logger.info("Role sync task started")
     else:
         logger.error("Failed to initialize Twitch API on startup")
+
+@bot.command(name='setupauth')
+@commands.has_permissions(administrator=True)
+async def setup_auth(ctx):
+    """Generate Twitch authentication URL"""
+    if ctx.channel.id != DISCORD_MOD_CHANNEL_ID:
+        await ctx.send("❌ Tento příkaz lze použít pouze v administrátorském kanálu!")
+        return
+
+    try:
+        global auth_manager
+        if not auth_manager:
+            auth_manager = TwitchAuthManager(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL_NAME)
+            await auth_manager.initialize()
+        
+        auth_url = await auth_manager.generate_auth_url()
+        if auth_url:
+            embed = discord.Embed(
+                title="🔐 Twitch Authentication Setup",
+                description=(
+                    "**Pokyny pro vlastníka kanálu:**\n\n"
+                    "1. Klikni na odkaz níže\n"
+                    "2. Přihlaš se do Twitche\n"
+                    "3. Po přihlášení budeš přesměrován na stránku s kódem v URL\n"
+                    "4. Zkopíruj kód z URL (část po `code=`) a pošli ho sem\n"
+                    "5. Admin použije příkaz: `!completeauth <code>`\n\n"
+                    f"**Authentication URL:**\n{auth_url}"
+                ),
+                color=discord.Color.blue()
+            )
+            await ctx.send(embed=embed)
+    except Exception as e:
+        logger.error(f"Error in setup_auth: {e}")
+        await ctx.send("❌ Nastala chyba při generování auth URL.")
+
+@bot.command(name='completeauth')
+@commands.has_permissions(administrator=True)
+async def complete_auth(ctx, auth_code: str):
+    """Complete the authentication process with the code"""
+    if ctx.channel.id != DISCORD_MOD_CHANNEL_ID:
+        await ctx.send("❌ Tento příkaz lze použít pouze v administrátorském kanálu!")
+        return
+
+    try:
+        # Delete the message to keep the auth code private
+        await ctx.message.delete()
+        
+        global auth_manager, twitch
+        if not auth_manager:
+            auth_manager = TwitchAuthManager(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL_NAME)
+            await auth_manager.initialize()
+            
+        if await auth_manager.set_user_auth(auth_code):
+            twitch = auth_manager.twitch
+            embed = discord.Embed(
+                title="✅ Autentizace Úspěšná",
+                description="Twitch autentizace byla úspěšně dokončena!",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+            await sync_roles_task()
+        else:
+            await ctx.send("❌ Nepodařilo se dokončit autentizaci. Zkus to prosím znovu.")
+    except Exception as e:
+        logger.error(f"Error in complete_auth: {e}")
+        await ctx.send("❌ Nastala chyba při dokončování autentizace.")
 
 @bot.command(name='link')
 async def link_account(ctx, twitch_username: str = None):
@@ -316,7 +408,9 @@ async def show_commands(ctx):
     # Admin commands
     if ctx.author.guild_permissions.administrator:
         admin_commands = [
-            "`!forcesync` - Vynutí synchronizaci rolí pro všechny propojené účty"
+            "`!forcesync` - Vynutí synchronizaci rolí pro všechny propojené účty",
+            "`!setupauth` - Vygeneruje autentizační odkaz pro Twitch",
+            "`!completeauth <code>` - Dokončí Twitch autentizaci pomocí kódu"
         ]
         embed.add_field(name="⚡ Administrátorské příkazy", value="\n".join(admin_commands), inline=False)
     
