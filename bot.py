@@ -1,6 +1,8 @@
 import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
+from twitchAPI.oauth import UserAuthenticator
+from twitchAPI.types import AuthScope
 import asyncio
 import os
 import json
@@ -25,8 +27,13 @@ TWITCH_CHANNEL_NAME = os.environ['TWITCH_CHANNEL_NAME']
 DISCORD_GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
 DISCORD_VIP_ROLE_ID = int(os.environ['DISCORD_VIP_ROLE_ID'])
 
-# File to store verified users
+# Optional environment variables for tokens
+TWITCH_ACCESS_TOKEN = os.environ.get('TWITCH_ACCESS_TOKEN')
+TWITCH_REFRESH_TOKEN = os.environ.get('TWITCH_REFRESH_TOKEN')
+
+# File paths
 VERIFIED_USERS_FILE = 'verified_users.json'
+TOKENS_FILE = 'twitch_tokens.json'
 
 # Initialize Discord bot with all necessary intents
 intents = discord.Intents.all()
@@ -36,6 +43,36 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 twitch = None
 verification_codes: Dict[str, dict] = {}  # Store temporary verification codes
 verified_users: Dict[str, str] = {}  # Store Discord ID -> Twitch username mappings
+
+async def save_tokens(token: str, refresh_token: str):
+    """Save authentication tokens to a file"""
+    try:
+        with open(TOKENS_FILE, 'w') as f:
+            json.dump({
+                'token': token,
+                'refresh_token': refresh_token
+            }, f)
+        logger.info("Successfully saved authentication tokens")
+    except Exception as e:
+        logger.error(f"Error saving tokens: {e}")
+
+async def load_tokens() -> tuple[str, str] | None:
+    """Load authentication tokens from file or environment"""
+    # First try environment variables
+    if TWITCH_ACCESS_TOKEN and TWITCH_REFRESH_TOKEN:
+        logger.info("Using tokens from environment variables")
+        return TWITCH_ACCESS_TOKEN, TWITCH_REFRESH_TOKEN
+    
+    # Then try file
+    try:
+        if os.path.exists(TOKENS_FILE):
+            with open(TOKENS_FILE, 'r') as f:
+                data = json.load(f)
+                logger.info("Successfully loaded tokens from file")
+                return data['token'], data['refresh_token']
+    except Exception as e:
+        logger.error(f"Error loading tokens: {e}")
+    return None
 
 def generate_verification_code() -> str:
     """Generate a random 6-character verification code"""
@@ -63,14 +100,37 @@ def save_verified_users():
         logger.error(f"Error saving verified users: {e}")
 
 async def initialize_twitch():
-    """Initialize Twitch API"""
+    """Initialize Twitch API with user authentication"""
     global twitch
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        await twitch_instance.authenticate_app([])
-        logger.info("Twitch API authenticated successfully")
-        return twitch_instance
+        
+        target_scope = [AuthScope.CHANNEL_READ_VIPS]
+        
+        # Try to load existing tokens
+        tokens = await load_tokens()
+        if tokens:
+            token, refresh_token = tokens
+            try:
+                await twitch_instance.set_user_authentication(token, target_scope, refresh_token)
+                logger.info("Successfully authenticated using saved tokens")
+                return twitch_instance
+            except Exception as e:
+                logger.warning(f"Failed to use saved tokens: {e}")
+        
+        # If no tokens or they failed, do browser authentication
+        auth = UserAuthenticator(twitch_instance, target_scope, force_verify=False)
+        try:
+            token, refresh_token = await auth.authenticate()
+            await save_tokens(token, refresh_token)
+            await twitch_instance.set_user_authentication(token, target_scope, refresh_token)
+            logger.info("Twitch API authenticated successfully with user access")
+            return twitch_instance
+        except Exception as e:
+            logger.error(f"User authentication failed: {str(e)}")
+            return None
+            
     except Exception as e:
         logger.error(f"Failed to initialize Twitch API: {str(e)}")
         logger.error(traceback.format_exc())
@@ -79,9 +139,9 @@ async def initialize_twitch():
 async def get_channel_id(channel_name):
     """Get Twitch channel ID from channel name"""
     try:
-        users_generator = twitch.get_users(logins=[channel_name])
+        users_generator = await twitch.get_users(logins=[channel_name])
         
-        async for user in users_generator:
+        for user in users_generator:
             if user.login.lower() == channel_name.lower():
                 logger.info(f"Found channel ID for {channel_name}: {user.id}")
                 return user.id
@@ -98,9 +158,9 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Fetching VIPs for channel ID: {channel_id}")
-        vips_generator = twitch.get_vips(broadcaster_id=channel_id)
+        vips_generator = await twitch.get_vips(broadcaster_id=channel_id)
         
-        async for vip in vips_generator:
+        for vip in vips_generator:
             vips.append(vip.user_login.lower())
             logger.debug(f"Found VIP: {vip.user_login}")
             
@@ -220,7 +280,7 @@ async def force_sync(ctx):
 async def sync_vip_roles():
     """Sync VIP roles between Twitch and Discord daily"""
     try:
-        logger.info("Starting daily VIP role sync...")
+        logger.info("Starting VIP role sync...")
         global twitch
         if twitch is None:
             logger.warning("Attempting to reinitialize Twitch API...")
@@ -265,7 +325,7 @@ async def sync_vip_roles():
                 sync_count += 1
                 logger.info(f"Removed VIP role from {member.name}")
 
-        logger.info(f"Daily sync completed. Made {sync_count} role changes.")
+        logger.info(f"Sync completed. Made {sync_count} role changes.")
 
     except Exception as e:
         logger.error(f"Error in sync_vip_roles: {e}")
