@@ -72,12 +72,14 @@ async def initialize_twitch():
         logger.error(traceback.format_exc())
         return None
 
+# [Previous imports and setup code remains the same until get_channel_id function]
+
 async def get_channel_id(channel_name):
     """Get Twitch channel ID from channel name"""
     try:
-        users = await twitch.get_users(logins=[channel_name])
+        users_generator = twitch.get_users(logins=[channel_name])
         
-        for user in users:
+        async for user in users_generator:
             if user.login.lower() == channel_name.lower():
                 logger.info(f"Found channel ID for {channel_name}: {user.id}")
                 return user.id
@@ -94,9 +96,9 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Fetching VIPs for channel ID: {channel_id}")
-        moderators = await twitch.get_channel_moderators(channel_id)
+        moderators_generator = twitch.get_channel_moderators(channel_id)
         
-        for mod in moderators:
+        async for mod in moderators_generator:
             vips.append(mod.user_login.lower())
             logger.debug(f"Found VIP/Mod: {mod.user_login}")
             
@@ -106,6 +108,8 @@ async def get_vips(channel_id):
         logger.error(f"Error getting VIPs: {e}")
         logger.error(traceback.format_exc())
         return []
+
+# [Rest of the code remains the same]
 
 @bot.event
 async def on_ready():
