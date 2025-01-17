@@ -76,8 +76,7 @@ async def initialize_twitch():
                 logger.info(f"Saved tokens invalid, starting new authentication: {e}")
                 
         # If no tokens or invalid tokens, do new authentication
-        auth = UserAuthenticator(twitch_instance, [AuthScope.CHANNEL_READ_VIPS])
-        auth_url = auth.get_authorization_url()
+        auth = UserAuthenticator(twitch_instance, [AuthScope.CHANNEL_READ_VIPS], force_verify=False)
         
         print("\n" + "="*50)
         print("\nTWITCH AUTHENTICATION REQUIRED")
@@ -90,7 +89,7 @@ async def initialize_twitch():
         print("\nThe bot will continue once authentication is complete.")
         print("="*50 + "\n")
         
-        # Get the tokens through the authentication process
+        # Use the newer async method
         token, refresh_token = await auth.authenticate()
         
         # Save the new tokens
