@@ -1,12 +1,13 @@
 import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
+from twitchAPI.types import AuthScope
 import asyncio
 import os
 import json
 import logging
 import traceback
-from typing import Dict
+from typing import Optional, Dict
 
 # Set up logging
 logging.basicConfig(
@@ -23,7 +24,7 @@ TWITCH_CHANNEL_NAME = os.environ['TWITCH_CHANNEL_NAME']
 DISCORD_GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
 DISCORD_VIP_ROLE_ID = int(os.environ['DISCORD_VIP_ROLE_ID'])
 # Make subscriber role optional
-DISCORD_SUB_ROLE_ID = int(os.environ.get('DISCORD_SUB_ROLE_ID', 0))
+DISCORD_SUB_ROLE_ID = int(os.environ.get('DISCORD_SUB_ROLE_ID', '0'))
 
 # File paths
 VERIFIED_USERS_FILE = 'verified_users.json'
@@ -61,8 +62,7 @@ async def initialize_twitch():
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        # Add required scopes for VIPs and subscribers
-        await twitch_instance.authenticate_app(['channel:read:vips', 'channel:read:subscriptions'])
+        await twitch_instance.authenticate_app([AuthScope.CHANNEL_READ_SUBSCRIPTIONS, AuthScope.MODERATOR_READ_VIPS])
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
     except Exception as e:
@@ -73,36 +73,46 @@ async def initialize_twitch():
 async def get_channel_id(channel_name):
     try:
         users = await twitch.get_users(logins=[channel_name])
-        for user in users:
-            if user.login.lower() == channel_name.lower():
-                return user.id
+        user = next((user for user in users['data'] if user['login'].lower() == channel_name.lower()), None)
+        if user:
+            return user['id']
+        logger.error(f"Channel {channel_name} not found")
         return None
     except Exception as e:
         logger.error(f"Error getting channel ID: {e}")
+        logger.error(traceback.format_exc())
         return None
 
 async def get_vips(channel_id):
     vips = []
     try:
-        vips_generator = await twitch.get_channel_vips(channel_id)
-        async for vip in vips_generator:
-            vips.append(vip.user_login.lower())
+        logger.info(f"Fetching VIPs for channel ID: {channel_id}")
+        vips_response = await twitch.get_vips(channel_id)
+        for vip in vips_response['data']:
+            vips.append(vip['user_login'].lower())
+            logger.debug(f"Found VIP: {vip['user_login']}")
+        logger.info(f"Retrieved {len(vips)} VIPs")
         return vips
     except Exception as e:
         logger.error(f"Error getting VIPs: {e}")
+        logger.error(traceback.format_exc())
         return []
 
 async def get_subscribers(channel_id):
-    subscribers = []
+    subs = []
     try:
         if DISCORD_SUB_ROLE_ID == 0:
             return []
-        subs_generator = await twitch.get_channel_subscribers(channel_id)
-        async for sub in subs_generator:
-            subscribers.append(sub.user_login.lower())
-        return subscribers
+        logger.info(f"Fetching subscribers for channel ID: {channel_id}")
+        subs_response = await twitch.get_channel_subscribers(channel_id)
+        for sub in subs_response['data']:
+            subs.append(sub['user_login'].lower())
+            logger.debug(f"Found subscriber: {sub['user_login']}")
+        logger.info(f"Retrieved {len(subs)} subscribers")
+        return subs
     except Exception as e:
         logger.error(f"Error getting subscribers: {e}")
+        logger.error(traceback.format_exc())
         return []
 
 @bot.event
@@ -163,7 +173,7 @@ async def check_status(ctx):
         else:
             await ctx.send(f"❌ Nemáš VIP na kanále {TWITCH_CHANNEL_NAME}")
         
-        # Check subscriber status if enabled
+        # Check Sub status if enabled
         if DISCORD_SUB_ROLE_ID != 0:
             subs = await get_subscribers(channel_id)
             if twitch_username.lower() in subs:
@@ -182,9 +192,9 @@ async def check_status(ctx):
     if DISCORD_SUB_ROLE_ID != 0:
         sub_role = guild.get_role(DISCORD_SUB_ROLE_ID)
         if sub_role in ctx.author.roles:
-            await ctx.send("✅ Máš Subscriber roli na Discordu")
+            await ctx.send("✅ Máš Sub roli na Discordu")
         else:
-            await ctx.send("❌ Nemáš Subscriber roli na Discordu")
+            await ctx.send("❌ Nemáš Sub roli na Discordu")
 
 @bot.command(name='forcesync')
 @commands.has_permissions(administrator=True)
@@ -211,7 +221,15 @@ async def sync_roles():
             return
 
         vip_role = guild.get_role(DISCORD_VIP_ROLE_ID)
-        sub_role = guild.get_role(DISCORD_SUB_ROLE_ID) if DISCORD_SUB_ROLE_ID != 0 else None
+        if not vip_role:
+            logger.error(f"Could not find VIP role with ID {DISCORD_VIP_ROLE_ID}")
+            return
+
+        sub_role = None
+        if DISCORD_SUB_ROLE_ID != 0:
+            sub_role = guild.get_role(DISCORD_SUB_ROLE_ID)
+            if not sub_role:
+                logger.error(f"Could not find Sub role with ID {DISCORD_SUB_ROLE_ID}")
 
         channel_id = await get_channel_id(TWITCH_CHANNEL_NAME)
         if not channel_id:
@@ -219,7 +237,7 @@ async def sync_roles():
             return
 
         vips = await get_vips(channel_id)
-        subscribers = await get_subscribers(channel_id) if sub_role else []
+        subs = await get_subscribers(channel_id) if sub_role else []
 
         sync_count = 0
         for discord_id, twitch_username in verified_users.items():
@@ -235,21 +253,25 @@ async def sync_roles():
                 if is_vip and not has_vip_role:
                     await member.add_roles(vip_role)
                     sync_count += 1
+                    logger.info(f"Added VIP role to {member.name}")
                 elif not is_vip and has_vip_role:
                     await member.remove_roles(vip_role)
                     sync_count += 1
+                    logger.info(f"Removed VIP role from {member.name}")
 
-                # Sync subscriber role if enabled
+                # Sync Sub role if enabled
                 if sub_role:
-                    is_sub = twitch_username.lower() in subscribers
+                    is_sub = twitch_username.lower() in subs
                     has_sub_role = sub_role in member.roles
 
                     if is_sub and not has_sub_role:
                         await member.add_roles(sub_role)
                         sync_count += 1
+                        logger.info(f"Added Sub role to {member.name}")
                     elif not is_sub and has_sub_role:
                         await member.remove_roles(sub_role)
                         sync_count += 1
+                        logger.info(f"Removed Sub role from {member.name}")
 
             except Exception as e:
                 logger.error(f"Error processing member {discord_id}: {e}")
