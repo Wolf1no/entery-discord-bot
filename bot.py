@@ -9,6 +9,7 @@ import logging
 import traceback
 from typing import Optional, Dict
 from datetime import datetime
+from twitchAPI.types import AuthScope
 
 # Set up logging
 logging.basicConfig(
@@ -62,10 +63,10 @@ async def initialize_twitch():
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        # Add required scopes for subscriber access
+        # Use AuthScope enum values instead of strings
         await twitch_instance.authenticate_app([
-            'channel:read:subscriptions',
-            'channel:read:vips'
+            AuthScope.CHANNEL_READ_SUBSCRIPTIONS,
+            AuthScope.CHANNEL_READ_VIPS
         ])
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
