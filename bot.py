@@ -60,18 +60,14 @@ async def get_twitch_connection(member: discord.Member) -> Optional[str]:
 
 async def get_channel_id(channel_name):
     try:
-        # Modified to handle the response correctly
-        response = await twitch.get_users(logins=[channel_name])
-        if hasattr(response, 'data') and response.data:
-            return response.data[0].id
-            
-        # Fallback for async generator response
-        users = []
-        async for user in response:
-            users.append(user)
-            
-        if users:
-            return users[0].id
+        # Get users as an async generator
+        users_generator = twitch.get_users(logins=[channel_name])
+        
+        # Iterate through the generator to find the user
+        async for user in users_generator:
+            if user.login.lower() == channel_name.lower():
+                logger.info(f"Found channel ID for {channel_name}: {user.id}")
+                return user.id
             
         logger.error(f"Channel {channel_name} not found")
         return None
@@ -84,15 +80,13 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Fetching VIPs for channel ID: {channel_id}")
-        response = await twitch.get_channel_vips(channel_id)
         
-        # Handle both object and async generator responses
-        if hasattr(response, 'data'):
-            for vip in response.data:
-                vips.append(vip.user_login.lower())
-        else:
-            async for vip in response:
-                vips.append(vip.user_login.lower())
+        # Get VIPs as an async generator
+        vips_generator = twitch.get_channel_vips(channel_id)
+        
+        # Iterate through the generator to collect VIPs
+        async for vip in vips_generator:
+            vips.append(vip.user_login.lower())
             
         logger.info(f"Retrieved VIPs: {vips}")
         return vips
