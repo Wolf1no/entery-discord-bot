@@ -2,22 +2,18 @@ import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
 from twitchAPI.helper import first
-from twitchAPI.types import TwitchAPIException
 import asyncio
 import os
 import json
 import logging
 import traceback
 from typing import Optional, Dict
+from datetime import datetime
 
-# Set up logging with more detailed format
+# Set up logging
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('bot.log')
-    ]
+    format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -50,9 +46,6 @@ def load_verified_users():
             with open(VERIFIED_USERS_FILE, 'r') as f:
                 verified_users = json.load(f)
             logger.info(f"Loaded {len(verified_users)} verified users")
-        else:
-            logger.info("No verified users file found, starting with empty list")
-            verified_users = {}
     except Exception as e:
         logger.error(f"Error loading verified users: {e}")
         verified_users = {}
@@ -61,10 +54,9 @@ def save_verified_users():
     try:
         with open(VERIFIED_USERS_FILE, 'w') as f:
             json.dump(verified_users, f)
-        logger.info(f"Saved {len(verified_users)} verified users to file")
+        logger.info("Saved verified users to file")
     except Exception as e:
         logger.error(f"Error saving verified users: {e}")
-        logger.error(traceback.format_exc())
 
 async def initialize_twitch():
     try:
@@ -74,7 +66,7 @@ async def initialize_twitch():
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
     except Exception as e:
-        logger.error(f"Failed to initialize Twitch API: {str(e)}")
+        logger.error(f"Failed to initialize Twitch API: {e}")
         logger.error(traceback.format_exc())
         return None
 
@@ -82,7 +74,7 @@ async def get_channel_id(channel_name):
     try:
         logger.info(f"Getting channel ID for: {channel_name}")
         users_generator = await twitch.get_users(logins=[channel_name])
-        user = await first(users_generator)  # Use the helper function to get the first user
+        user = await first(users_generator)
         
         if user:
             logger.info(f"Found channel ID: {user.id} for user: {user.login}")
@@ -91,9 +83,6 @@ async def get_channel_id(channel_name):
         logger.warning(f"No user found for channel name: {channel_name}")
         return None
         
-    except TwitchAPIException as e:
-        logger.error(f"Twitch API error while getting channel ID: {e}")
-        return None
     except Exception as e:
         logger.error(f"Error getting channel ID: {e}", exc_info=True)
         return None
@@ -102,7 +91,8 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Getting VIPs for channel ID: {channel_id}")
-        async for vip in await twitch.get_channel_vips(channel_id):
+        vips_generator = await twitch.get_channel_vips(channel_id)
+        async for vip in vips_generator:
             vips.append(vip.user_login.lower())
         logger.info(f"Found {len(vips)} VIPs")
         return vips
@@ -114,7 +104,8 @@ async def get_subscribers(channel_id):
     subscribers = []
     try:
         logger.info(f"Getting subscribers for channel ID: {channel_id}")
-        async for sub in await twitch.get_channel_subscribers(channel_id):
+        subs_generator = await twitch.get_channel_subscribers(channel_id)
+        async for sub in subs_generator:
             subscribers.append(sub.user_login.lower())
         logger.info(f"Found {len(subscribers)} subscribers")
         return subscribers
@@ -125,7 +116,7 @@ async def get_subscribers(channel_id):
 @tasks.loop(hours=24)
 async def sync_roles_task():
     try:
-        logger.info("Starting role sync task...")
+        logger.info("Starting role sync...")
         global twitch
         if twitch is None:
             twitch = await initialize_twitch()
@@ -159,7 +150,6 @@ async def sync_roles_task():
             try:
                 member = await guild.fetch_member(int(discord_id))
                 if not member:
-                    logger.warning(f"Could not find member with ID {discord_id}")
                     continue
 
                 # Handle VIP role
@@ -187,7 +177,6 @@ async def sync_roles_task():
 
             except Exception as e:
                 logger.error(f"Error processing member {discord_id}: {e}")
-                logger.error(traceback.format_exc())
 
     except Exception as e:
         logger.error(f"Error in sync_roles_task: {e}")
@@ -217,7 +206,14 @@ async def link_account(ctx, twitch_username: str = None):
     verified_users[discord_id] = twitch_username
     save_verified_users()
     
-    await ctx.send(f"✅ Tvůj Discord účet a tvůj Twitch účet byl úspěšně propojen: {twitch_username}\nKontroluji status rolí\n!check pro kontrolu statusu")
+    embed = discord.Embed(
+        title="✅ Účty propojeny",
+        description=f"Tvůj Discord účet byl úspěšně propojen s Twitch účtem: **{twitch_username}**",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="Co dál?", value="Použij `!check` pro kontrolu statusu rolí", inline=False)
+    
+    await ctx.send(embed=embed)
     await sync_roles_task()
 
 @bot.command(name='unlink')
@@ -226,52 +222,83 @@ async def unlink_account(ctx):
     if discord_id in verified_users:
         del verified_users[discord_id]
         save_verified_users()
-        await ctx.send("✅ Tvůj účet byl úspešně odpojen.")
+        
+        embed = discord.Embed(
+            title="✅ Účty odpojeny",
+            description="Tvůj Discord účet byl úspěšně odpojen od Twitch účtu",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
         await sync_roles_task()
     else:
-        await ctx.send("❌ Tvůj Discord účet není propojen s žádným Twitch účtem.\nPoužij `!link <twitch_username>` pro propojení účtů.")
+        embed = discord.Embed(
+            title="❌ Účet není propojen",
+            description="Tvůj Discord účet není propojen s žádným Twitch účtem.\nPoužij `!link <twitch_username>` pro propojení účtů.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
 
 @bot.command(name='check')
 async def check_status(ctx):
     discord_id = str(ctx.author.id)
     
     if discord_id not in verified_users:
-        await ctx.send("❌ Tvůj Discord účet není propojen s žádným Twitch účtem.\nPoužij `!link <twitch_username>` pro propojení účtů.")
+        embed = discord.Embed(
+            title="❌ Účet není propojen",
+            description="Tvůj Discord účet není propojen s žádným Twitch účtem.\nPoužij `!link <twitch_username>` pro propojení účtů.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     twitch_username = verified_users[discord_id]
-    status_messages = [
-        f"✅ Tvůj Discord účet je propojen s tvým Twitch účtem: {twitch_username}",
-        "\n**Status rolí:**"
-    ]
-    
+    embed = discord.Embed(
+        title="📊 Status účtu",
+        description=f"Discord účet je propojen s Twitch účtem: **{twitch_username}**",
+        color=discord.Color.blue()
+    )
+
     # Check Twitch status
     channel_id = await get_channel_id(TWITCH_CHANNEL_NAME)
     if channel_id:
         vips = await get_vips(channel_id)
-        subscribers = await get_subscribers(channel_id) if DISCORD_SUB_ROLE_ID else []
-        
-        # Check VIP status on both platforms
         is_vip_twitch = twitch_username.lower() in vips
-        status_messages.append(f"{'✅' if is_vip_twitch else '❌'} Twitch VIP Status: {'Máš' if is_vip_twitch else 'Nemáš'} VIP na kanále {TWITCH_CHANNEL_NAME}")
-        
-        # Check SUB status if enabled
+        embed.add_field(
+            name="Twitch VIP Status",
+            value=f"{'✅' if is_vip_twitch else '❌'} {'Máš' if is_vip_twitch else 'Nemáš'} VIP na kanále {TWITCH_CHANNEL_NAME}",
+            inline=False
+        )
+
         if DISCORD_SUB_ROLE_ID:
+            subscribers = await get_subscribers(channel_id)
             is_sub_twitch = twitch_username.lower() in subscribers
-            status_messages.append(f"{'✅' if is_sub_twitch else '❌'} Twitch SUB Status: {'Máš' if is_sub_twitch else 'Nemáš'} SUB na kanále {TWITCH_CHANNEL_NAME}")
-    
+            embed.add_field(
+                name="Twitch SUB Status",
+                value=f"{'✅' if is_sub_twitch else '❌'} {'Máš' if is_sub_twitch else 'Nemáš'} SUB na kanále {TWITCH_CHANNEL_NAME}",
+                inline=False
+            )
+
     # Check Discord roles
     guild = ctx.guild
     vip_role = guild.get_role(DISCORD_VIP_ROLE_ID)
     has_vip_discord = vip_role in ctx.author.roles
-    status_messages.append(f"{'✅' if has_vip_discord else '❌'} Discord VIP Status: {'Máš' if has_vip_discord else 'Nemáš'} VIP roli na Discordu")
-    
+    embed.add_field(
+        name="Discord VIP Status",
+        value=f"{'✅' if has_vip_discord else '❌'} {'Máš' if has_vip_discord else 'Nemáš'} VIP roli na Discordu",
+        inline=False
+    )
+
     if DISCORD_SUB_ROLE_ID:
         sub_role = guild.get_role(DISCORD_SUB_ROLE_ID)
         has_sub_discord = sub_role and sub_role in ctx.author.roles
-        status_messages.append(f"{'✅' if has_sub_discord else '❌'} Discord SUB Status: {'Máš' if has_sub_discord else 'Nemáš'} SUB roli na Discordu")
-    
-    await ctx.send("\n".join(status_messages))
+        embed.add_field(
+            name="Discord SUB Status",
+            value=f"{'✅' if has_sub_discord else '❌'} {'Máš' if has_sub_discord else 'Nemáš'} SUB roli na Discordu",
+            inline=False
+        )
+
+    embed.set_footer(text=f"Poslední kontrola: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    await ctx.send(embed=embed)
 
 @bot.command(name='commands')
 async def show_commands(ctx):
@@ -315,10 +342,11 @@ async def force_sync(ctx):
         await sync_roles_task()
         embed.description = "✅ Synchronizace dokončena!"
         embed.color = discord.Color.green()
+        logger.info("Force sync completed successfully")
     except Exception as e:
         embed.description = f"❌ Chyba při synchronizaci: {str(e)}"
         embed.color = discord.Color.red()
-        logger.error(f"Error in force_sync: {e}")
+        logger.error(f"Error in force_sync: {e}", exc_info=True)
     
     await message.edit(embed=embed)
 
@@ -327,10 +355,20 @@ async def before_sync_roles():
     await bot.wait_until_ready()
     logger.info("Role sync task is ready to start")
 
+# Error handler for common exceptions
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Na tento příkaz nemáš oprávnění!")
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("❌ Chybí povinný argument! Použij `!commands` pro nápovědu.")
+    else:
+        logger.error(f"Unexpected error: {error}", exc_info=True)
+        await ctx.send("❌ Nastala neočekávaná chyba. Prosím, zkus to znovu později.")
+
 if __name__ == "__main__":
     try:
         logger.info("Starting bot...")
         bot.run(DISCORD_TOKEN)
     except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Failed to start bot: {e}", exc_info=True)
