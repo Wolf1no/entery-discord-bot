@@ -128,7 +128,7 @@ async def on_ready():
 async def link_account(ctx, twitch_username: str = None):
     """Link Discord account to Twitch account"""
     if not twitch_username:
-        await ctx.send("❌ Please provide your Twitch username: `!link <twitch_username>`")
+        await ctx.send("❌ Prosím zadej svoje Twitch uživatelské jméno: `!link <twitch_username>`")
         return
 
     twitch_username = twitch_username.lower()
@@ -138,7 +138,7 @@ async def link_account(ctx, twitch_username: str = None):
     verified_users[discord_id] = twitch_username
     save_verified_users()
     
-    await ctx.send(f"✅ Successfully linked your Discord account to Twitch account: {twitch_username}\nRunning VIP check...")
+    await ctx.send(f"✅ Tvůj Discord účet a tvůj Twitch účet byl úspěšně propojen: {twitch_username}\nKontroluji VIP status\n!check pro kontrolu statusu")
     
     # Force a sync to update roles
     await sync_vip_roles()
@@ -150,12 +150,12 @@ async def unlink_account(ctx):
     if discord_id in verified_users:
         del verified_users[discord_id]
         save_verified_users()
-        await ctx.send("✅ Successfully unlinked your account.")
+        await ctx.send("✅ Tvůj účet byl úspešně odpojen.")
         
         # Force a sync to update roles
         await sync_vip_roles()
     else:
-        await ctx.send("❌ Your account is not linked to any Twitch account.")
+        await ctx.send("❌ Tvůj Discord účet není propojen s žádným Twitch účtem.\nPoužij `!link <twitch_username>` pro propojení účtů.")
 
 @bot.command(name='check')
 async def check_status(ctx):
@@ -163,36 +163,36 @@ async def check_status(ctx):
     discord_id = str(ctx.author.id)
     
     if discord_id not in verified_users:
-        await ctx.send("❌ Your Discord account is not linked to any Twitch account.\nUse `!link <twitch_username>` to link your account.")
+        await ctx.send("❌ Tvůj Discord účet není propojen s žádným Twitch účtem.\nPoužij `!link <twitch_username>` pro propojení účtů..")
         return
 
     twitch_username = verified_users[discord_id]
-    await ctx.send(f"✅ Your Discord account is linked to Twitch account: {twitch_username}")
+    await ctx.send(f"✅ Tvůj Discord účet je propojen s tvým Twitch účtem: {twitch_username}")
     
     # Check VIP status
     channel_id = await get_channel_id(TWITCH_CHANNEL_NAME)
     if channel_id:
         vips = await get_vips(channel_id)
         if twitch_username.lower() in vips:
-            await ctx.send(f"✅ You are a VIP/Mod in channel {TWITCH_CHANNEL_NAME}")
+            await ctx.send(f"✅ Máš VIP! {TWITCH_CHANNEL_NAME}")
         else:
-            await ctx.send(f"❌ You are not a VIP/Mod in channel {TWITCH_CHANNEL_NAME}")
+            await ctx.send(f"❌ Nemáš VIP :( {TWITCH_CHANNEL_NAME}")
     
     # Check Discord role
     guild = ctx.guild
     vip_role = guild.get_role(DISCORD_VIP_ROLE_ID)
     if vip_role in ctx.author.roles:
-        await ctx.send("✅ You have the VIP role in Discord")
+        await ctx.send("✅ Máš VIP roli na Discordu")
     else:
-        await ctx.send("❌ You don't have the VIP role in Discord")
+        await ctx.send("❌ Nemáš VIP roli na Discordu")
 
 @bot.command(name='forcesync')
 @commands.has_permissions(administrator=True)
 async def force_sync(ctx):
     """Force a sync of VIP roles (admin only)"""
-    await ctx.send("🔄 Forcing VIP role sync...")
+    await ctx.send("🔄 Zahajuji synchronizaci...")
     await sync_vip_roles()
-    await ctx.send("✅ Sync complete!")
+    await ctx.send("✅ Synchronizace dokončena!")
 
 @tasks.loop(hours=24)
 async def sync_vip_roles():
