@@ -64,10 +64,15 @@ class TwitchAuthManager:
     async def generate_auth_url(self):
         """Generate the authentication URL for the channel owner"""
         try:
-            auth = UserAuthenticator(self.twitch, [
-                AuthScope.CHANNEL_READ_SUBSCRIPTIONS,
-                AuthScope.CHANNEL_READ_VIPS
-            ])
+            auth = UserAuthenticator(
+                self.twitch, 
+                [
+                    AuthScope.CHANNEL_READ_SUBSCRIPTIONS,
+                    AuthScope.CHANNEL_READ_VIPS
+                ],
+                force_verify=True,
+                url='http://localhost/'
+            )
             url = auth.return_auth_url()
             logger.info("Generated authentication URL successfully")
             return url
@@ -78,10 +83,14 @@ class TwitchAuthManager:
     async def set_user_auth(self, auth_code):
         """Set up authentication using the code from the redirect URL"""
         try:
-            auth = UserAuthenticator(self.twitch, [
-                AuthScope.CHANNEL_READ_SUBSCRIPTIONS,
-                AuthScope.CHANNEL_READ_VIPS
-            ])
+            auth = UserAuthenticator(
+                self.twitch, 
+                [
+                    AuthScope.CHANNEL_READ_SUBSCRIPTIONS,
+                    AuthScope.CHANNEL_READ_VIPS
+                ],
+                url='http://localhost/'
+            )
             # Use the auth code to get tokens
             token, refresh_token = await auth.authenticate(auth_code)
             await self.save_tokens(token, refresh_token)
