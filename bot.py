@@ -9,7 +9,7 @@ import logging
 import traceback
 from typing import Optional, Dict
 from datetime import datetime
-from twitchAPI.types import AuthScope
+from twitchAPI.type import AuthScope
 
 # Set up logging
 logging.basicConfig(
