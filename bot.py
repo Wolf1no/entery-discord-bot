@@ -446,7 +446,7 @@ async def show_commands(ctx):
         ]
         embed.add_field(name="⚡ Administrátorské příkazy", value="\n".join(admin_commands), inline=False)
     
-    embed.set_footer(text=f"Bot vytvořen pro {TWITCH_CHANNEL_NAME}")
+    embed.set_footer(text=f"Bot created by Wolf1no}")
     await ctx.send(embed=embed)
 
 
