@@ -1,10 +1,13 @@
 import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
+from twitchAPI.oauth import UserAuthenticator
+from twitchAPI.types import AuthScope
 import asyncio
 import os
+import json
 import logging
-import traceback  # Added traceback import
+import traceback
 from typing import Optional
 
 # Set up logging
@@ -21,6 +24,7 @@ DISCORD_TOKEN = os.environ['DISCORD_TOKEN']
 TWITCH_CHANNEL_NAME = os.environ['TWITCH_CHANNEL_NAME']
 DISCORD_GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
 DISCORD_VIP_ROLE_ID = int(os.environ['DISCORD_VIP_ROLE_ID'])
+TOKEN_FILE = os.environ.get('TOKEN_FILE', 'twitch_tokens.json')  # Path to store tokens
 
 # Initialize Discord bot with all necessary intents
 intents = discord.Intents.all()
@@ -29,13 +33,73 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # Global variable to store Twitch instance
 twitch = None
 
+async def save_tokens(token, refresh_token):
+    """Save Twitch tokens to a file"""
+    try:
+        with open(TOKEN_FILE, 'w') as f:
+            json.dump({
+                'token': token,
+                'refresh_token': refresh_token
+            }, f)
+        logger.info("Successfully saved tokens to file")
+    except Exception as e:
+        logger.error(f"Failed to save tokens: {e}")
+
+async def load_tokens():
+    """Load Twitch tokens from file"""
+    try:
+        with open(TOKEN_FILE, 'r') as f:
+            tokens = json.load(f)
+            logger.info("Successfully loaded tokens from file")
+            return tokens['token'], tokens['refresh_token']
+    except Exception as e:
+        logger.error(f"Failed to load tokens: {e}")
+        return None, None
+
 async def initialize_twitch():
+    """Initialize Twitch API with user authentication"""
     global twitch
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        await twitch_instance.authenticate_app([])
-        logger.info("Twitch API authenticated successfully")
+        
+        # Try to load existing tokens
+        token, refresh_token = await load_tokens()
+        
+        if token and refresh_token:
+            try:
+                # Try to use existing tokens
+                await twitch_instance.set_user_authentication(token, [AuthScope.CHANNEL_READ_VIPS], refresh_token)
+                logger.info("Successfully authenticated with saved tokens")
+                return twitch_instance
+            except Exception as e:
+                logger.info(f"Saved tokens invalid, starting new authentication: {e}")
+                
+        # If no tokens or invalid tokens, do new authentication
+        auth = UserAuthenticator(twitch_instance, [AuthScope.CHANNEL_READ_VIPS])
+        auth_url = auth.get_authorization_url()
+        
+        print("\n" + "="*50)
+        print("\nTWITCH AUTHENTICATION REQUIRED")
+        print("\nPlease follow these steps:")
+        print("1. Go to this URL in your web browser:")
+        print(f"\n{auth_url}\n")
+        print("2. Log in with your Twitch account (must be a moderator/admin of your channel)")
+        print("3. Authorize the application")
+        print("4. You'll be redirected to a page. Copy the URL of that page.")
+        print("\nThe bot will continue once authentication is complete.")
+        print("="*50 + "\n")
+        
+        # Get the tokens through the authentication process
+        token, refresh_token = await auth.authenticate()
+        
+        # Save the new tokens
+        await save_tokens(token, refresh_token)
+        
+        # Set up the authentication
+        await twitch_instance.set_user_authentication(token, [AuthScope.CHANNEL_READ_VIPS], refresh_token)
+        
+        logger.info("Twitch API authenticated successfully with user auth")
         return twitch_instance
     except Exception as e:
         logger.error(f"Failed to initialize Twitch API: {str(e)}")
@@ -59,11 +123,10 @@ async def get_twitch_connection(member: discord.Member) -> Optional[str]:
     return None
 
 async def get_channel_id(channel_name):
+    """Get Twitch channel ID from channel name"""
     try:
-        # Get users as an async generator
         users_generator = twitch.get_users(logins=[channel_name])
         
-        # Iterate through the generator to find the user
         async for user in users_generator:
             if user.login.lower() == channel_name.lower():
                 logger.info(f"Found channel ID for {channel_name}: {user.id}")
@@ -77,14 +140,13 @@ async def get_channel_id(channel_name):
         return None
 
 async def get_vips(channel_id):
+    """Get list of VIPs for a channel"""
     vips = []
     try:
         logger.info(f"Fetching VIPs for channel ID: {channel_id}")
         
-        # Use get_vips instead of get_channel_vips
         vips_generator = twitch.get_vips(broadcaster_id=channel_id)
         
-        # Iterate through the generator to collect VIPs
         async for vip in vips_generator:
             vips.append(vip.user_login.lower())
             logger.debug(f"Found VIP: {vip.user_login}")
@@ -98,9 +160,12 @@ async def get_vips(channel_id):
 
 @bot.event
 async def on_ready():
+    """Called when the bot is ready and connected to Discord"""
     global twitch
+    logger.info(f"Bot connected as {bot.user.name}")
     twitch = await initialize_twitch()
     if twitch:
+        logger.info("Starting VIP role sync task")
         sync_vip_roles.start()
     else:
         logger.error("Failed to initialize Twitch API on startup")
@@ -159,6 +224,7 @@ async def force_sync(ctx):
 
 @tasks.loop(minutes=5)
 async def sync_vip_roles():
+    """Sync VIP roles between Twitch and Discord every 5 minutes"""
     try:
         global twitch
         if twitch is None:
@@ -185,7 +251,7 @@ async def sync_vip_roles():
 
         logger.info(f"Successfully found channel ID: {channel_id}")
         vips = await get_vips(channel_id)
-        logger.info(f"Retrieved {len(vips)} VIPs from Twitch")
+        logger.info(f"Retrieved {len(vips)} VIPs")
 
         for member in guild.members:
             twitch_name = await get_twitch_connection(member)
