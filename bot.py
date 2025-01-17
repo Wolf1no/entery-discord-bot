@@ -280,7 +280,7 @@ async def setup_auth(ctx):
                     "2. Přihlaš se do Twitche\n"
                     "3. Po přihlášení budeš přesměrován na stránku s kódem v URL\n"
                     "4. Zkopíruj kód z URL (část po `code=`) a pošli ho sem\n"
-                    "5. Admin použije příkaz: `!completeauth <code>`\n\n"
+                    "5. Použij příkaz: `!completeauth <code>`\n\n"
                     f"**Authentication URL:**\n{auth_url}"
                 ),
                 color=discord.Color.blue()
@@ -315,7 +315,6 @@ async def complete_auth(ctx, auth_code: str):
                 color=discord.Color.green()
             )
             await ctx.send(embed=embed)
-            await sync_roles_task()
         else:
             await ctx.send("❌ Nepodařilo se dokončit autentizaci. Zkus to prosím znovu.")
     except Exception as e:
@@ -451,12 +450,13 @@ async def show_commands(ctx):
         admin_commands = [
             "`!forcesync` - Vynutí synchronizaci rolí pro všechny propojené účty",
             "`!setupauth` - Vygeneruje autentizační odkaz pro Twitch",
-            "`!completeauth <code>` - Dokončí Twitch autentizaci pomocí kódu"
+            "`!completeauth <code>` - Dokončí Twitch autentizaci pomocí kódem"
         ]
         embed.add_field(name="⚡ Administrátorské příkazy", value="\n".join(admin_commands), inline=False)
     
     embed.set_footer(text=f"Bot vytvořen pro {TWITCH_CHANNEL_NAME}")
     await ctx.send(embed=embed)
+
 
 @bot.command(name='forcesync')
 @commands.has_permissions(administrator=True)
