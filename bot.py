@@ -74,22 +74,28 @@ async def initialize_twitch():
                 return twitch_instance
             except Exception as e:
                 logger.info(f"Saved tokens invalid, starting new authentication: {e}")
+        
+        # For CI/CD environment, try to use client credentials flow instead
+        if os.environ.get('CI'):
+            logger.info("Running in CI environment, using client credentials flow")
+            await twitch_instance.authenticate_app([])
+            return twitch_instance
                 
-        # If no tokens or invalid tokens, do new authentication
+        # If running locally, use user authentication
         auth = UserAuthenticator(twitch_instance, [AuthScope.CHANNEL_READ_VIPS], force_verify=False)
         
         print("\n" + "="*50)
         print("\nTWITCH AUTHENTICATION REQUIRED")
+        print("\nThe authentication window should open automatically in your browser.")
+        print("If it doesn't, the URL will be provided in the console output.")
         print("\nPlease follow these steps:")
-        print("1. Go to this URL in your web browser:")
-        print(f"\n{auth_url}\n")
-        print("2. Log in with your Twitch account (must be a moderator/admin of your channel)")
-        print("3. Authorize the application")
-        print("4. You'll be redirected to a page. Copy the URL of that page.")
-        print("\nThe bot will continue once authentication is complete.")
+        print("1. Log in with your Twitch account (must be a moderator/admin of your channel)")
+        print("2. Authorize the application")
+        print("3. The process will complete automatically once authorized")
+        print("\nWaiting for authentication...")
         print("="*50 + "\n")
         
-        # Use the newer async method
+        # Get the tokens through the authentication process
         token, refresh_token = await auth.authenticate()
         
         # Save the new tokens
