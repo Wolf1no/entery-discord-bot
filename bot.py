@@ -4,6 +4,7 @@ from twitchAPI.twitch import Twitch
 import asyncio
 import os
 import logging
+import traceback  # Added traceback import
 from typing import Optional
 
 # Set up logging
@@ -44,11 +45,9 @@ async def initialize_twitch():
 async def get_twitch_connection(member: discord.Member) -> Optional[str]:
     """Get Twitch username from member's connections."""
     try:
-        # Use member.guild.fetch_member() to get fresh member data
         fresh_member = await member.guild.fetch_member(member.id)
         connections = await fresh_member.profile()
         
-        # Look for Twitch connection in the profile
         for connection in connections.connected_accounts:
             if connection.type == 'twitch':
                 return connection.name.lower()
@@ -61,10 +60,19 @@ async def get_twitch_connection(member: discord.Member) -> Optional[str]:
 
 async def get_channel_id(channel_name):
     try:
-        users = await twitch.get_users(logins=[channel_name])
-        async for user in users:
-            if user.login.lower() == channel_name.lower():
-                return user.id
+        # Modified to handle the response correctly
+        response = await twitch.get_users(logins=[channel_name])
+        if hasattr(response, 'data') and response.data:
+            return response.data[0].id
+            
+        # Fallback for async generator response
+        users = []
+        async for user in response:
+            users.append(user)
+            
+        if users:
+            return users[0].id
+            
         logger.error(f"Channel {channel_name} not found")
         return None
     except Exception as e:
@@ -76,10 +84,15 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Fetching VIPs for channel ID: {channel_id}")
-        vip_response = await twitch.get_channel_vips(channel_id)
+        response = await twitch.get_channel_vips(channel_id)
         
-        async for vip in vip_response:
-            vips.append(vip.user_login.lower())
+        # Handle both object and async generator responses
+        if hasattr(response, 'data'):
+            for vip in response.data:
+                vips.append(vip.user_login.lower())
+        else:
+            async for vip in response:
+                vips.append(vip.user_login.lower())
             
         logger.info(f"Retrieved VIPs: {vips}")
         return vips
@@ -101,7 +114,6 @@ async def on_ready():
 async def check_connection(ctx):
     """Command to check user's Twitch connection and VIP status."""
     try:
-        # Check if twitch API is initialized
         global twitch
         if twitch is None:
             twitch = await initialize_twitch()
@@ -109,7 +121,6 @@ async def check_connection(ctx):
                 await ctx.send("❌ Bot cannot connect to Twitch API!")
                 return
 
-        # Get user's Twitch connection
         twitch_name = await get_twitch_connection(ctx.author)
         if not twitch_name:
             await ctx.send("❌ No Twitch account connected to your Discord! Please connect your Twitch account in Discord User Settings > Connections")
@@ -117,23 +128,19 @@ async def check_connection(ctx):
 
         await ctx.send(f"✅ Found your Twitch connection: {twitch_name}")
 
-        # Check if channel exists
         channel_id = await get_channel_id(TWITCH_CHANNEL_NAME)
         if not channel_id:
             await ctx.send(f"❌ Could not find Twitch channel: {TWITCH_CHANNEL_NAME}")
             return
 
-        # Get VIPs
         vips = await get_vips(channel_id)
         is_vip = twitch_name in vips
 
-        # Check VIP status
         if is_vip:
             await ctx.send(f"✅ You are a VIP in channel {TWITCH_CHANNEL_NAME}")
         else:
             await ctx.send(f"❌ You are not a VIP in channel {TWITCH_CHANNEL_NAME}")
 
-        # Check Discord role
         guild = ctx.guild
         vip_role = guild.get_role(DISCORD_VIP_ROLE_ID)
         has_role = vip_role in ctx.author.roles
