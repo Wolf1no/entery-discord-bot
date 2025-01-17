@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
-from twitchAPI.helper import first
+from twitchAPI.type import AuthScope
 import asyncio
 import os
 import json
@@ -9,7 +9,6 @@ import logging
 import traceback
 from typing import Optional, Dict
 from datetime import datetime
-from twitchAPI.type import AuthScope
 
 # Set up logging
 logging.basicConfig(
@@ -63,8 +62,10 @@ async def initialize_twitch():
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        # No scopes needed for basic app authentication in this version
-        await twitch_instance.authenticate_app([])
+        await twitch_instance.authenticate_app([
+            AuthScope.CHANNEL_READ_SUBSCRIPTIONS,
+            AuthScope.CHANNEL_READ_VIPS
+        ])
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
     except Exception as e:
@@ -72,6 +73,9 @@ async def initialize_twitch():
         logger.error(traceback.format_exc())
         return None
 
+async def get_channel_id(channel_name):
+    try:
+        logger.info(f"Getting channel ID for: {channel_name}")
 async def get_channel_id(channel_name):
     try:
         logger.info(f"Getting channel ID for: {channel_name}")
