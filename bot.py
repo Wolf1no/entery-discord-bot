@@ -8,7 +8,7 @@ from typing import Optional
 
 # Set up logging
 logging.basicConfig(
-    level=logging.DEBUG,  # Changed to DEBUG for more detailed logs
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -33,32 +33,69 @@ async def initialize_twitch():
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        
-        # Authenticate without specifying scopes initially
         await twitch_instance.authenticate_app([])
-        
-        # Set authentication scopes after initial auth
-        # Note: channel:read:vips scope is handled automatically by the API
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
-        
     except Exception as e:
         logger.error(f"Failed to initialize Twitch API: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())  # This will show the full error trace
+        logger.error(traceback.format_exc())
         return None
 
 async def get_twitch_connection(member: discord.Member) -> Optional[str]:
     """Get Twitch username from member's connections."""
     try:
-        async for connection in member.fetch_connections():
+        # Use member.guild.fetch_member() to get fresh member data
+        fresh_member = await member.guild.fetch_member(member.id)
+        connections = await fresh_member.profile()
+        
+        # Look for Twitch connection in the profile
+        for connection in connections.connected_accounts:
             if connection.type == 'twitch':
                 return connection.name.lower()
+        return None
     except discord.Forbidden:
         logger.error(f"Cannot access connections for {member.name}")
     except Exception as e:
         logger.error(f"Error fetching connections for {member.name}: {e}")
     return None
+
+async def get_channel_id(channel_name):
+    try:
+        users = await twitch.get_users(logins=[channel_name])
+        async for user in users:
+            if user.login.lower() == channel_name.lower():
+                return user.id
+        logger.error(f"Channel {channel_name} not found")
+        return None
+    except Exception as e:
+        logger.error(f"Error getting channel ID: {e}")
+        logger.error(traceback.format_exc())
+        return None
+
+async def get_vips(channel_id):
+    vips = []
+    try:
+        logger.info(f"Fetching VIPs for channel ID: {channel_id}")
+        vip_response = await twitch.get_channel_vips(channel_id)
+        
+        async for vip in vip_response:
+            vips.append(vip.user_login.lower())
+            
+        logger.info(f"Retrieved VIPs: {vips}")
+        return vips
+    except Exception as e:
+        logger.error(f"Error getting VIPs: {e}")
+        logger.error(traceback.format_exc())
+        return []
+
+@bot.event
+async def on_ready():
+    global twitch
+    twitch = await initialize_twitch()
+    if twitch:
+        sync_vip_roles.start()
+    else:
+        logger.error("Failed to initialize Twitch API on startup")
 
 @bot.command(name='checkconnection')
 async def check_connection(ctx):
@@ -118,60 +155,6 @@ async def force_sync(ctx):
     await sync_vip_roles()
     await ctx.send("✅ Sync complete!")
 
-async def get_channel_id(channel_name):
-    try:
-        # Handle the response correctly
-        response = await twitch.get_users(logins=[channel_name])
-        logger.debug(f"get_users response: {response}")
-        
-        # Check if we have data in the response
-        if hasattr(response, 'data') and response.data:
-            return response.data[0].id
-        else:
-            # If response is an async generator, handle it differently
-            async for user in response:
-                if user.get('login', '').lower() == channel_name.lower():
-                    return user.get('id')
-                
-        logger.error(f"Channel {channel_name} not found")
-        return None
-    except Exception as e:
-        logger.error(f"Error getting channel ID: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return None
-
-async def get_vips(channel_id):
-    vips = []
-    try:
-        logger.info(f"Fetching VIPs for channel ID: {channel_id}")
-        
-        # Handle the VIP response
-        response = await twitch.get_channel_vips(channel_id)
-        
-        # If response is an async generator
-        if hasattr(response, '__aiter__'):
-            async for vip in response:
-                if isinstance(vip, dict) and 'user_login' in vip:
-                    vips.append(vip['user_login'].lower())
-                elif hasattr(vip, 'user_login'):
-                    vips.append(vip.user_login.lower())
-        # If response is a direct object
-        elif hasattr(response, 'data'):
-            for vip in response.data:
-                if isinstance(vip, dict) and 'user_login' in vip:
-                    vips.append(vip['user_login'].lower())
-                elif hasattr(vip, 'user_login'):
-                    vips.append(vip.user_login.lower())
-                    
-        logger.info(f"Retrieved VIPs: {vips}")
-        return vips
-    except Exception as e:
-        logger.error(f"Error getting VIPs: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return []
-
 @tasks.loop(minutes=5)
 async def sync_vip_roles():
     try:
@@ -193,10 +176,7 @@ async def sync_vip_roles():
             logger.error(f"Could not find VIP role with ID {DISCORD_VIP_ROLE_ID}")
             return
 
-        # Add debug logging for channel name
-        logger.info(f"Looking up channel ID for: {TWITCH_CHANNEL_NAME}")
         channel_id = await get_channel_id(TWITCH_CHANNEL_NAME)
-        
         if not channel_id:
             logger.error("Could not get channel ID")
             return
@@ -219,7 +199,6 @@ async def sync_vip_roles():
 
     except Exception as e:
         logger.error(f"Error in sync_vip_roles: {e}")
-        import traceback
         logger.error(traceback.format_exc())
 
 if __name__ == "__main__":
