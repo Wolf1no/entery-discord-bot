@@ -1,14 +1,14 @@
 import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
-from twitchAPI.oauth import UserAuthenticator
-from twitchAPI.type import AuthScope
 import asyncio
 import os
 import json
 import logging
 import traceback
-from typing import Optional
+import random
+import string
+from typing import Optional, Dict
 
 # Set up logging
 logging.basicConfig(
@@ -24,120 +24,57 @@ DISCORD_TOKEN = os.environ['DISCORD_TOKEN']
 TWITCH_CHANNEL_NAME = os.environ['TWITCH_CHANNEL_NAME']
 DISCORD_GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
 DISCORD_VIP_ROLE_ID = int(os.environ['DISCORD_VIP_ROLE_ID'])
-TOKEN_FILE = 'twitch_tokens.json'
+
+# File to store verified users
+VERIFIED_USERS_FILE = 'verified_users.json'
 
 # Initialize Discord bot with all necessary intents
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Global variable to store Twitch instance
+# Global variables
 twitch = None
+verification_codes: Dict[str, dict] = {}  # Store temporary verification codes
+verified_users: Dict[str, str] = {}  # Store Discord ID -> Twitch username mappings
 
-class TokenManager:
-    def __init__(self, token_file: str = TOKEN_FILE):
-        self.token_file = token_file
-        self.is_ci = os.environ.get('CI', 'false').lower() == 'true'
+def generate_verification_code() -> str:
+    """Generate a random 6-character verification code"""
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
-    async def save_tokens(self, token: str, refresh_token: str) -> None:
-        if self.is_ci:
-            os.environ['TWITCH_ACCESS_TOKEN'] = token
-            os.environ['TWITCH_REFRESH_TOKEN'] = refresh_token
-        else:
-            try:
-                with open(self.token_file, 'w') as f:
-                    json.dump({
-                        'token': token,
-                        'refresh_token': refresh_token
-                    }, f)
-            except Exception as e:
-                logger.error(f"Failed to save tokens: {e}")
+def load_verified_users():
+    """Load verified users from file"""
+    global verified_users
+    try:
+        if os.path.exists(VERIFIED_USERS_FILE):
+            with open(VERIFIED_USERS_FILE, 'r') as f:
+                verified_users = json.load(f)
+            logger.info(f"Loaded {len(verified_users)} verified users")
+    except Exception as e:
+        logger.error(f"Error loading verified users: {e}")
+        verified_users = {}
 
-    async def load_tokens(self) -> tuple[Optional[str], Optional[str]]:
-        if self.is_ci:
-            token = os.environ.get('TWITCH_USER_TOKEN')
-            refresh_token = os.environ.get('TWITCH_REFRESH_TOKEN')
-            return token, refresh_token
-        else:
-            try:
-                with open(self.token_file, 'r') as f:
-                    data = json.load(f)
-                    return data['token'], data['refresh_token']
-            except Exception as e:
-                logger.error(f"Failed to load tokens: {e}")
-                return None, None
-
-token_manager = TokenManager()
+def save_verified_users():
+    """Save verified users to file"""
+    try:
+        with open(VERIFIED_USERS_FILE, 'w') as f:
+            json.dump(verified_users, f)
+        logger.info("Saved verified users to file")
+    except Exception as e:
+        logger.error(f"Error saving verified users: {e}")
 
 async def initialize_twitch():
-    """Initialize Twitch API with user authentication"""
+    """Initialize Twitch API"""
     global twitch
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        
-        # Try to load existing tokens
-        token, refresh_token = await token_manager.load_tokens()
-        
-        if token and refresh_token:
-            try:
-                await twitch_instance.set_user_authentication(token, [AuthScope.CHANNEL_READ_VIPS], refresh_token)
-                logger.info("Successfully authenticated with saved tokens")
-                return twitch_instance
-            except Exception as e:
-                logger.info(f"Saved tokens invalid, starting new authentication: {e}")
-
-        # For CI environment, we need to use pre-authenticated tokens
-        if os.environ.get('CI'):
-            logger.info("Running in CI environment, checking for pre-authenticated tokens")
-            ci_token = os.environ.get('TWITCH_USER_TOKEN')
-            ci_refresh = os.environ.get('TWITCH_REFRESH_TOKEN')
-            
-            if ci_token and ci_refresh:
-                try:
-                    await twitch_instance.set_user_authentication(ci_token, [AuthScope.CHANNEL_READ_VIPS], ci_refresh)
-                    logger.info("Successfully authenticated with CI environment tokens")
-                    return twitch_instance
-                except Exception as e:
-                    logger.error(f"Failed to authenticate with CI tokens: {e}")
-                    return None
-            else:
-                logger.error("No pre-authenticated tokens found in CI environment")
-                return None
-
-        # If running locally, use user authentication
-        auth = UserAuthenticator(twitch_instance, [AuthScope.CHANNEL_READ_VIPS], force_verify=False)
-        
-        # Get the tokens through the authentication process
-        token, refresh_token = await auth.authenticate()
-        
-        # Save the new tokens
-        await token_manager.save_tokens(token, refresh_token)
-        
-        # Set up the authentication
-        await twitch_instance.set_user_authentication(token, [AuthScope.CHANNEL_READ_VIPS], refresh_token)
-        
-        logger.info("Twitch API authenticated successfully with user auth")
+        await twitch_instance.authenticate_app([])
+        logger.info("Twitch API authenticated successfully")
         return twitch_instance
     except Exception as e:
         logger.error(f"Failed to initialize Twitch API: {str(e)}")
         logger.error(traceback.format_exc())
         return None
-
-async def get_twitch_connection(member: discord.Member) -> Optional[str]:
-    """Get Twitch username from member's connections."""
-    try:
-        fresh_member = await member.guild.fetch_member(member.id)
-        connections = await fresh_member.profile()
-        
-        for connection in connections.connected_accounts:
-            if connection.type == 'twitch':
-                return connection.name.lower()
-        return None
-    except discord.Forbidden:
-        logger.error(f"Cannot access connections for {member.name}")
-    except Exception as e:
-        logger.error(f"Error fetching connections for {member.name}: {e}")
-    return None
 
 async def get_channel_id(channel_name):
     """Get Twitch channel ID from channel name"""
@@ -161,7 +98,6 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Fetching VIPs for channel ID: {channel_id}")
-        
         vips_generator = twitch.get_vips(broadcaster_id=channel_id)
         
         async for vip in vips_generator:
@@ -177,9 +113,10 @@ async def get_vips(channel_id):
 
 @bot.event
 async def on_ready():
-    """Called when the bot is ready and connected to Discord"""
+    """Called when the bot is ready"""
     global twitch
     logger.info(f"Bot connected as {bot.user.name}")
+    load_verified_users()
     twitch = await initialize_twitch()
     if twitch:
         logger.info("Starting VIP role sync task")
@@ -187,62 +124,103 @@ async def on_ready():
     else:
         logger.error("Failed to initialize Twitch API on startup")
 
-@bot.command(name='checkconnection')
-async def check_connection(ctx):
-    """Command to check user's Twitch connection and VIP status."""
-    try:
-        global twitch
-        if twitch is None:
-            twitch = await initialize_twitch()
-            if twitch is None:
-                await ctx.send("❌ Bot cannot connect to Twitch API!")
-                return
+@bot.command(name='link')
+async def link_account(ctx, twitch_username: str = None):
+    """Link Discord account to Twitch account"""
+    if not twitch_username:
+        await ctx.send("❌ Please provide your Twitch username: `!link <twitch_username>`")
+        return
 
-        twitch_name = await get_twitch_connection(ctx.author)
-        if not twitch_name:
-            await ctx.send("❌ No Twitch account connected to your Discord! Please connect your Twitch account in Discord User Settings > Connections")
-            return
+    twitch_username = twitch_username.lower()
+    verification_code = generate_verification_code()
+    
+    verification_codes[verification_code] = {
+        'discord_id': str(ctx.author.id),
+        'twitch_username': twitch_username,
+        'timestamp': ctx.message.created_at.timestamp()
+    }
 
-        await ctx.send(f"✅ Found your Twitch connection: {twitch_name}")
+    await ctx.send(
+        f"✅ Verification code generated! To verify your Twitch account:\n\n"
+        f"1. Go to twitch.tv/{TWITCH_CHANNEL_NAME}\n"
+        f"2. Type this in chat: `!verify {verification_code}`\n\n"
+        "The code will expire in 5 minutes. Use `!check` to see your current link status."
+    )
 
-        channel_id = await get_channel_id(TWITCH_CHANNEL_NAME)
-        if not channel_id:
-            await ctx.send(f"❌ Could not find Twitch channel: {TWITCH_CHANNEL_NAME}")
-            return
+@bot.command(name='verify')
+async def verify_code(ctx, code: str = None):
+    """Verify a Twitch account with the provided code"""
+    if code and code.upper() in verification_codes:
+        data = verification_codes[code.upper()]
+        if ctx.author.name.lower() == data['twitch_username'].lower():
+            verified_users[data['discord_id']] = data['twitch_username']
+            save_verified_users()
+            await ctx.send(f"✅ Successfully verified {ctx.author.name}")
+            del verification_codes[code.upper()]
+            
+            # Force a sync to update roles
+            await sync_vip_roles()
+        else:
+            await ctx.send("❌ This code was generated for a different Twitch account.")
+    else:
+        await ctx.send("❌ Invalid or expired verification code.")
 
+@bot.command(name='unlink')
+async def unlink_account(ctx):
+    """Unlink Discord account from Twitch account"""
+    discord_id = str(ctx.author.id)
+    if discord_id in verified_users:
+        del verified_users[discord_id]
+        save_verified_users()
+        await ctx.send("✅ Successfully unlinked your account.")
+        
+        # Force a sync to update roles
+        await sync_vip_roles()
+    else:
+        await ctx.send("❌ Your account is not linked to any Twitch account.")
+
+@bot.command(name='check')
+async def check_status(ctx):
+    """Check current link status and VIP status"""
+    discord_id = str(ctx.author.id)
+    
+    if discord_id not in verified_users:
+        await ctx.send("❌ Your Discord account is not linked to any Twitch account.\nUse `!link <twitch_username>` to link your account.")
+        return
+
+    twitch_username = verified_users[discord_id]
+    await ctx.send(f"✅ Your Discord account is linked to Twitch account: {twitch_username}")
+    
+    # Check VIP status
+    channel_id = await get_channel_id(TWITCH_CHANNEL_NAME)
+    if channel_id:
         vips = await get_vips(channel_id)
-        is_vip = twitch_name in vips
-
-        if is_vip:
+        if twitch_username.lower() in vips:
             await ctx.send(f"✅ You are a VIP in channel {TWITCH_CHANNEL_NAME}")
         else:
             await ctx.send(f"❌ You are not a VIP in channel {TWITCH_CHANNEL_NAME}")
-
-        guild = ctx.guild
-        vip_role = guild.get_role(DISCORD_VIP_ROLE_ID)
-        has_role = vip_role in ctx.author.roles
-
-        if has_role:
-            await ctx.send("✅ You have the VIP role in Discord")
-        else:
-            await ctx.send("❌ You don't have the VIP role in Discord")
-
-    except Exception as e:
-        logger.error(f"Error in check_connection: {e}")
-        await ctx.send(f"❌ An error occurred: {str(e)}")
+    
+    # Check Discord role
+    guild = ctx.guild
+    vip_role = guild.get_role(DISCORD_VIP_ROLE_ID)
+    if vip_role in ctx.author.roles:
+        await ctx.send("✅ You have the VIP role in Discord")
+    else:
+        await ctx.send("❌ You don't have the VIP role in Discord")
 
 @bot.command(name='forcesync')
 @commands.has_permissions(administrator=True)
 async def force_sync(ctx):
-    """Force a sync of VIP roles (admin only)."""
+    """Force a sync of VIP roles (admin only)"""
     await ctx.send("🔄 Forcing VIP role sync...")
     await sync_vip_roles()
     await ctx.send("✅ Sync complete!")
 
-@tasks.loop(minutes=5)
+@tasks.loop(hours=24)
 async def sync_vip_roles():
-    """Sync VIP roles between Twitch and Discord every 5 minutes"""
+    """Sync VIP roles between Twitch and Discord daily"""
     try:
+        logger.info("Starting daily VIP role sync...")
         global twitch
         if twitch is None:
             logger.warning("Attempting to reinitialize Twitch API...")
@@ -266,25 +244,38 @@ async def sync_vip_roles():
             logger.error("Could not get channel ID")
             return
 
-        logger.info(f"Successfully found channel ID: {channel_id}")
         vips = await get_vips(channel_id)
         logger.info(f"Retrieved {len(vips)} VIPs")
 
-        for member in guild.members:
-            twitch_name = await get_twitch_connection(member)
-            if twitch_name:
-                logger.info(f"Processing {member.name} with Twitch: {twitch_name}")
-                
-                if twitch_name in vips and vip_role not in member.roles:
-                    await member.add_roles(vip_role)
-                    logger.info(f"Added VIP role to {member.name}")
-                elif twitch_name not in vips and vip_role in member.roles:
-                    await member.remove_roles(vip_role)
-                    logger.info(f"Removed VIP role from {member.name}")
+        sync_count = 0
+        for discord_id, twitch_username in verified_users.items():
+            member = await guild.fetch_member(int(discord_id))
+            if not member:
+                continue
+
+            is_vip = twitch_username.lower() in vips
+            has_role = vip_role in member.roles
+
+            if is_vip and not has_role:
+                await member.add_roles(vip_role)
+                sync_count += 1
+                logger.info(f"Added VIP role to {member.name}")
+            elif not is_vip and has_role:
+                await member.remove_roles(vip_role)
+                sync_count += 1
+                logger.info(f"Removed VIP role from {member.name}")
+
+        logger.info(f"Daily sync completed. Made {sync_count} role changes.")
 
     except Exception as e:
         logger.error(f"Error in sync_vip_roles: {e}")
         logger.error(traceback.format_exc())
+
+@sync_vip_roles.before_loop
+async def before_sync_vip_roles():
+    """Wait until the bot is ready before starting the sync loop"""
+    await bot.wait_until_ready()
+    logger.info("VIP role sync task is ready to start")
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
