@@ -73,12 +73,13 @@ async def initialize_twitch():
 async def get_channel_id(channel_name):
     try:
         logger.info(f"Getting channel ID for: {channel_name}")
-        users_generator = await twitch.get_users(logins=[channel_name])
-        user = await first(users_generator)
+        users = twitch.get_users(logins=[channel_name])  # Remove await here
         
-        if user:
-            logger.info(f"Found channel ID: {user.id} for user: {user.login}")
-            return user.id
+        async for user in users:  # Use async for to iterate through the generator
+            if user.login.lower() == channel_name.lower():
+                logger.info(f"Found channel ID: {user.id} for user: {user.login}")
+                return user.id
+            break  # We only need the first user
         
         logger.warning(f"No user found for channel name: {channel_name}")
         return None
@@ -91,8 +92,8 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Getting VIPs for channel ID: {channel_id}")
-        vips_generator = await twitch.get_channel_vips(channel_id)
-        async for vip in vips_generator:
+        vips_data = twitch.get_channel_vips(channel_id)
+        async for vip in vips_data:
             vips.append(vip.user_login.lower())
         logger.info(f"Found {len(vips)} VIPs")
         return vips
@@ -104,8 +105,8 @@ async def get_subscribers(channel_id):
     subscribers = []
     try:
         logger.info(f"Getting subscribers for channel ID: {channel_id}")
-        subs_generator = await twitch.get_channel_subscribers(channel_id)
-        async for sub in subs_generator:
+        subs_data = twitch.get_channel_subscribers(channel_id)
+        async for sub in subs_data:
             subscribers.append(sub.user_login.lower())
         logger.info(f"Found {len(subscribers)} subscribers")
         return subscribers
