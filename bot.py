@@ -24,7 +24,7 @@ DISCORD_TOKEN = os.environ['DISCORD_TOKEN']
 TWITCH_CHANNEL_NAME = os.environ['TWITCH_CHANNEL_NAME']
 DISCORD_GUILD_ID = int(os.environ['DISCORD_GUILD_ID'])
 DISCORD_VIP_ROLE_ID = int(os.environ['DISCORD_VIP_ROLE_ID'])
-TOKEN_FILE = os.environ.get('TOKEN_FILE', 'twitch_tokens.json')  # Path to store tokens
+TOKEN_FILE = 'twitch_tokens.json'
 
 # Initialize Discord bot with all necessary intents
 intents = discord.Intents.all()
@@ -33,28 +33,40 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # Global variable to store Twitch instance
 twitch = None
 
-async def save_tokens(token, refresh_token):
-    """Save Twitch tokens to a file"""
-    try:
-        with open(TOKEN_FILE, 'w') as f:
-            json.dump({
-                'token': token,
-                'refresh_token': refresh_token
-            }, f)
-        logger.info("Successfully saved tokens to file")
-    except Exception as e:
-        logger.error(f"Failed to save tokens: {e}")
+class TokenManager:
+    def __init__(self, token_file: str = TOKEN_FILE):
+        self.token_file = token_file
+        self.is_ci = os.environ.get('CI', 'false').lower() == 'true'
 
-async def load_tokens():
-    """Load Twitch tokens from file"""
-    try:
-        with open(TOKEN_FILE, 'r') as f:
-            tokens = json.load(f)
-            logger.info("Successfully loaded tokens from file")
-            return tokens['token'], tokens['refresh_token']
-    except Exception as e:
-        logger.error(f"Failed to load tokens: {e}")
-        return None, None
+    async def save_tokens(self, token: str, refresh_token: str) -> None:
+        if self.is_ci:
+            os.environ['TWITCH_ACCESS_TOKEN'] = token
+            os.environ['TWITCH_REFRESH_TOKEN'] = refresh_token
+        else:
+            try:
+                with open(self.token_file, 'w') as f:
+                    json.dump({
+                        'token': token,
+                        'refresh_token': refresh_token
+                    }, f)
+            except Exception as e:
+                logger.error(f"Failed to save tokens: {e}")
+
+    async def load_tokens(self) -> tuple[Optional[str], Optional[str]]:
+        if self.is_ci:
+            token = os.environ.get('TWITCH_USER_TOKEN')
+            refresh_token = os.environ.get('TWITCH_REFRESH_TOKEN')
+            return token, refresh_token
+        else:
+            try:
+                with open(self.token_file, 'r') as f:
+                    data = json.load(f)
+                    return data['token'], data['refresh_token']
+            except Exception as e:
+                logger.error(f"Failed to load tokens: {e}")
+                return None, None
+
+token_manager = TokenManager()
 
 async def initialize_twitch():
     """Initialize Twitch API with user authentication"""
@@ -64,42 +76,42 @@ async def initialize_twitch():
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
         
         # Try to load existing tokens
-        token, refresh_token = await load_tokens()
+        token, refresh_token = await token_manager.load_tokens()
         
         if token and refresh_token:
             try:
-                # Try to use existing tokens
                 await twitch_instance.set_user_authentication(token, [AuthScope.CHANNEL_READ_VIPS], refresh_token)
                 logger.info("Successfully authenticated with saved tokens")
                 return twitch_instance
             except Exception as e:
                 logger.info(f"Saved tokens invalid, starting new authentication: {e}")
-        
-        # For CI/CD environment, try to use client credentials flow instead
+
+        # For CI environment, we need to use pre-authenticated tokens
         if os.environ.get('CI'):
-            logger.info("Running in CI environment, using client credentials flow")
-            await twitch_instance.authenticate_app([])
-            return twitch_instance
-                
+            logger.info("Running in CI environment, checking for pre-authenticated tokens")
+            ci_token = os.environ.get('TWITCH_USER_TOKEN')
+            ci_refresh = os.environ.get('TWITCH_REFRESH_TOKEN')
+            
+            if ci_token and ci_refresh:
+                try:
+                    await twitch_instance.set_user_authentication(ci_token, [AuthScope.CHANNEL_READ_VIPS], ci_refresh)
+                    logger.info("Successfully authenticated with CI environment tokens")
+                    return twitch_instance
+                except Exception as e:
+                    logger.error(f"Failed to authenticate with CI tokens: {e}")
+                    return None
+            else:
+                logger.error("No pre-authenticated tokens found in CI environment")
+                return None
+
         # If running locally, use user authentication
         auth = UserAuthenticator(twitch_instance, [AuthScope.CHANNEL_READ_VIPS], force_verify=False)
-        
-        print("\n" + "="*50)
-        print("\nTWITCH AUTHENTICATION REQUIRED")
-        print("\nThe authentication window should open automatically in your browser.")
-        print("If it doesn't, the URL will be provided in the console output.")
-        print("\nPlease follow these steps:")
-        print("1. Log in with your Twitch account (must be a moderator/admin of your channel)")
-        print("2. Authorize the application")
-        print("3. The process will complete automatically once authorized")
-        print("\nWaiting for authentication...")
-        print("="*50 + "\n")
         
         # Get the tokens through the authentication process
         token, refresh_token = await auth.authenticate()
         
         # Save the new tokens
-        await save_tokens(token, refresh_token)
+        await token_manager.save_tokens(token, refresh_token)
         
         # Set up the authentication
         await twitch_instance.set_user_authentication(token, [AuthScope.CHANNEL_READ_VIPS], refresh_token)
