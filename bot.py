@@ -62,9 +62,10 @@ async def initialize_twitch():
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
+        # Make sure we have the required scopes
         await twitch_instance.authenticate_app([
-            AuthScope.CHANNEL_READ_SUBSCRIPTIONS,
-            AuthScope.CHANNEL_READ_VIPS
+            AuthScope.MODERATOR_READ_VIPS,      # For VIPs
+            AuthScope.CHANNEL_READ_SUBSCRIPTIONS # For Subscribers
         ])
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
@@ -93,7 +94,8 @@ async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Getting VIPs for channel ID: {channel_id}")
-        vips_data = twitch.get_channel_vips(channel_id)
+        # Changed from get_channel_vips to get_vips
+        vips_data = await twitch.get_vips(broadcaster_id=channel_id)
         async for vip in vips_data:
             vips.append(vip.user_login.lower())
         logger.info(f"Found {len(vips)} VIPs")
@@ -106,7 +108,8 @@ async def get_subscribers(channel_id):
     subscribers = []
     try:
         logger.info(f"Getting subscribers for channel ID: {channel_id}")
-        subs_data = twitch.get_subscriptions(channel_id)
+        # Changed from get_subscriptions to get_broadcaster_subscriptions
+        subs_data = await twitch.get_broadcaster_subscriptions(broadcaster_id=channel_id)
         async for sub in subs_data:
             subscribers.append(sub.user_login.lower())
         logger.info(f"Found {len(subscribers)} subscribers")
