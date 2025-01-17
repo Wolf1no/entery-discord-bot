@@ -62,7 +62,11 @@ async def initialize_twitch():
     try:
         logger.info("Attempting Twitch authentication...")
         twitch_instance = await Twitch(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
-        await twitch_instance.authenticate_app([])
+        # Add required scopes for subscriber access
+        await twitch_instance.authenticate_app([
+            'channel:read:subscriptions',
+            'channel:read:vips'
+        ])
         logger.info("Twitch API authenticated successfully")
         return twitch_instance
     except Exception as e:
@@ -105,7 +109,7 @@ async def get_subscribers(channel_id):
     subscribers = []
     try:
         logger.info(f"Getting subscribers for channel ID: {channel_id}")
-        subs_data = twitch.get_channel_subscribers(channel_id)
+        subs_data = twitch.get_broadcaster_subscriptions(channel_id)  # Changed method name
         async for sub in subs_data:
             subscribers.append(sub.user_login.lower())
         logger.info(f"Found {len(subscribers)} subscribers")
