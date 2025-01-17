@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
 from twitchAPI.helper import first
+from twitchAPI.types import TwitchAPIException
 import asyncio
 import os
 import json
@@ -80,44 +81,45 @@ async def initialize_twitch():
 async def get_channel_id(channel_name):
     try:
         logger.info(f"Getting channel ID for: {channel_name}")
-        users = await twitch.get_users(logins=[channel_name])
-        user = await first(users)
-        if user and user.login.lower() == channel_name.lower():
-            logger.info(f"Found channel ID: {user.id}")
+        users_generator = await twitch.get_users(logins=[channel_name])
+        user = await first(users_generator)  # Use the helper function to get the first user
+        
+        if user:
+            logger.info(f"Found channel ID: {user.id} for user: {user.login}")
             return user.id
-        logger.warning(f"Channel not found: {channel_name}")
+        
+        logger.warning(f"No user found for channel name: {channel_name}")
+        return None
+        
+    except TwitchAPIException as e:
+        logger.error(f"Twitch API error while getting channel ID: {e}")
         return None
     except Exception as e:
-        logger.error(f"Error getting channel ID: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Error getting channel ID: {e}", exc_info=True)
         return None
 
 async def get_vips(channel_id):
     vips = []
     try:
         logger.info(f"Getting VIPs for channel ID: {channel_id}")
-        vips_data = await twitch.get_channel_vips(channel_id)
-        async for vip in vips_data:
+        async for vip in await twitch.get_channel_vips(channel_id):
             vips.append(vip.user_login.lower())
-        logger.info(f"Retrieved {len(vips)} VIPs")
+        logger.info(f"Found {len(vips)} VIPs")
         return vips
     except Exception as e:
-        logger.error(f"Error getting VIPs: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Error getting VIPs: {e}", exc_info=True)
         return []
 
 async def get_subscribers(channel_id):
     subscribers = []
     try:
         logger.info(f"Getting subscribers for channel ID: {channel_id}")
-        subs_data = await twitch.get_channel_subscribers(channel_id)
-        async for sub in subs_data:
+        async for sub in await twitch.get_channel_subscribers(channel_id):
             subscribers.append(sub.user_login.lower())
-        logger.info(f"Retrieved {len(subscribers)} subscribers")
+        logger.info(f"Found {len(subscribers)} subscribers")
         return subscribers
     except Exception as e:
-        logger.error(f"Error getting subscribers: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Error getting subscribers: {e}", exc_info=True)
         return []
 
 @tasks.loop(hours=24)
