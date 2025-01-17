@@ -257,13 +257,9 @@ async def on_ready():
         logger.error("Failed to initialize Twitch API on startup")
 
 @bot.command(name='setupauth')
-@commands.has_permissions(administrator=True)
+@commands.has_permissions(administrator=True)  # This ensures only admins can use it
 async def setup_auth(ctx):
     """Generate Twitch authentication URL"""
-    if ctx.channel.id != DISCORD_MOD_CHANNEL_ID:
-        await ctx.send("❌ Tento příkaz lze použít pouze v administrátorském kanálu!")
-        return
-
     try:
         global auth_manager
         if not auth_manager:
@@ -291,13 +287,9 @@ async def setup_auth(ctx):
         await ctx.send("❌ Nastala chyba při generování auth URL.")
 
 @bot.command(name='completeauth')
-@commands.has_permissions(administrator=True)
+@commands.has_permissions(administrator=True)  # This ensures only admins can use it
 async def complete_auth(ctx, auth_code: str):
     """Complete the authentication process with the code"""
-    if ctx.channel.id != DISCORD_MOD_CHANNEL_ID:
-        await ctx.send("❌ Tento příkaz lze použít pouze v administrátorském kanálu!")
-        return
-
     try:
         # Delete the message to keep the auth code private
         await ctx.message.delete()
