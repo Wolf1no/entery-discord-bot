@@ -287,9 +287,13 @@ async def setup_auth(ctx):
         await ctx.send("❌ Nastala chyba při generování auth URL.")
 
 @bot.command(name='completeauth')
-@commands.has_permissions(administrator=True)  # This ensures only admins can use it
+@commands.has_permissions(administrator=True)
 async def complete_auth(ctx, auth_code: str):
     """Complete the authentication process with the code"""
+    if ctx.channel.id != DISCORD_MOD_CHANNEL_ID:
+        await ctx.send("❌ Tento příkaz lze použít pouze v administrátorském kanálu!")
+        return
+
     try:
         # Delete the message to keep the auth code private
         await ctx.message.delete()
