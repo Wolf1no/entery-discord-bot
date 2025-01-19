@@ -1,18 +1,19 @@
 import asyncio
 from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import UserAuthenticator
-from twitchAPI.type import AuthScope
+from twitchAPI.types import AuthScope
 import logging
 
 logger = logging.getLogger(__name__)
 
 class TwitchAuthManager:
-    def __init__(self, client_id, client_secret, channel_name):
+    def __init__(self, client_id, client_secret, channel_name, port=17563):
         self.client_id = client_id
         self.client_secret = client_secret
         self.channel_name = channel_name
         self.twitch = None
-        self.redirect_uri = 'http://localhost:17563'
+        self.port = port
+        self.redirect_uri = f'http://localhost:{self.port}'
         self.auth_scope = [
             AuthScope.CHANNEL_READ_SUBSCRIPTIONS,
             AuthScope.USER_READ_EMAIL,
@@ -34,6 +35,15 @@ class TwitchAuthManager:
             await self.twitch.set_user_authentication(token, refresh_token, self.auth_scope)
             logger.info("User authentication set successfully")
             return True
+        except OSError as e:
+            if e.errno == 98:  # Address already in use
+                logger.warning(f"Port {self.port} is already in use. Trying another port.")
+                self.port += 1
+                self.redirect_uri = f'http://localhost:{self.port}'
+                return await self.set_user_auth(auth_code)
+            else:
+                logger.error(f"Error setting user auth: {e}")
+                return False
         except Exception as e:
             logger.error(f"Error setting user auth: {e}")
             return False
