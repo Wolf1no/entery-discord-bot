@@ -1,7 +1,7 @@
 import asyncio
 from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import UserAuthenticator
-from twitchAPI.types import AuthScope
+from twitchAPI.type import AuthScope
 import logging
 
 logger = logging.getLogger(__name__)
