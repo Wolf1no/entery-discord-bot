@@ -287,13 +287,9 @@ async def setup_auth(ctx):
         await ctx.send("❌ Nastala chyba při generování auth URL.")
 
 @bot.command(name='completeauth')
+@commands.has_permissions(administrator=True)
 async def complete_auth(ctx, auth_code: str):
     """Complete the authentication process with the code"""
-    # Check if user has mod role
-    if not any(role.id == DISCORD_MOD_ROLE_ID for role in ctx.author.roles):
-        await ctx.send("❌ Tento příkaz mohou použít pouze moderátoři!")
-        return
-
     try:
         # Delete the message to keep the auth code private
         await ctx.message.delete()
@@ -316,7 +312,7 @@ async def complete_auth(ctx, auth_code: str):
     except Exception as e:
         logger.error(f"Error in complete_auth: {e}")
         await ctx.send("❌ Nastala chyba při dokončování autentizace.")
-
+        
 @bot.command(name='link')
 async def link_account(ctx, twitch_username: str = None):
     if not twitch_username:
