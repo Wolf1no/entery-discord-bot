@@ -272,7 +272,6 @@ async def setup_auth(ctx):
             description="```diff\n+ Generuji bezpečný autentizační odkaz...\n```",
             color=0x9147ff  # Twitch purple
         )
-        initial_embed.set_footer(text=f"Požadavek od {ctx.author.name} • {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
         setup_msg = await ctx.send(embed=initial_embed)
         
         # Get authentication URL
@@ -281,18 +280,16 @@ async def setup_auth(ctx):
             auth_embed = discord.Embed(
                 title="🔐 Nastavení Twitch autentizace",
                 description=(
-                    "```ini\n[Systém připraven k autentizaci]\n```\n"
                     "**Postup autentizace:**\n\n"
                     "**`1️⃣`** Klikni na autentizační odkaz níže\n"
                     "**`2️⃣`** Přihlaš se na Twitch a povol přístup\n"
                     "**`3️⃣`** Po přesměrování na localhost zkopíruj **celou** URL\n"
                     "**`4️⃣`** Použij příkaz:\n"
                     "```\n!completeauth <zkopírovaná-url>\n```\n"
-                    f"**🔗 Autentizační odkaz:**\n```\n{auth_url}\n```"
+                    f"{auth_url}"
                 ),
                 color=0x9147ff
             )
-            auth_embed.set_footer(text=f"Vygenerováno pro {ctx.author.name} • {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
             await setup_msg.edit(embed=auth_embed)
         else:
             error_embed = discord.Embed(
