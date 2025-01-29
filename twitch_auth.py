@@ -3,6 +3,7 @@ from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import UserAuthenticator
 from twitchAPI.type import AuthScope
 import logging
+from twitchAPI.helper import build_url, build_scope
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +27,20 @@ class TwitchAuthManager:
         return self.twitch
 
     async def generate_auth_url(self):
+        if not self.twitch:
+            await self.initialize()
+        
         try:
-            if not self.twitch:
-                await self.initialize()
-            
-            # Create a new UserAuthenticator instance
-            self.auth = UserAuthenticator(
-                self.twitch,
-                self.auth_scope,
-                self.redirect_uri
-            )
-            
-            # Use the UserAuthenticator's built-in OAuth flow
-            return await self.auth.authenticate()
+            # Manually construct the auth URL instead of using the browser flow
+            params = {
+                'client_id': self.client_id,
+                'redirect_uri': self.redirect_uri,
+                'response_type': 'code',
+                'scope': build_scope(self.auth_scope),
+                'force_verify': 'false'
+            }
+            url = build_url('https://id.twitch.tv/oauth2/authorize', params)
+            return url
             
         except Exception as e:
             logger.error(f"Error generating auth URL: {e}")
@@ -46,22 +48,32 @@ class TwitchAuthManager:
 
     async def set_user_auth(self, auth_code):
         try:
-            if not self.auth:
-                self.auth = UserAuthenticator(self.twitch, self.auth_scope, self.redirect_uri)
+            if auth_code.startswith('http'):
+                # Extract the code from the full URL if provided
+                from urllib.parse import urlparse, parse_qs
+                parsed = urlparse(auth_code)
+                params = parse_qs(parsed.query)
+                if 'code' in params:
+                    auth_code = params['code'][0]
+                else:
+                    raise ValueError("No authorization code found in URL")
+
+            if not self.twitch:
+                await self.initialize()
+
+            # Create a new UserAuthenticator for token exchange
+            self.auth = UserAuthenticator(
+                self.twitch,
+                self.auth_scope,
+                self.redirect_uri
+            )
             
+            # Exchange the code for tokens
             token, refresh_token = await self.auth.authenticate(auth_code)
             await self.twitch.set_user_authentication(token, refresh_token, self.auth_scope)
             logger.info("User authentication set successfully")
             return True
-        except OSError as e:
-            if e.errno == 98:  # Address already in use
-                logger.warning(f"Port {self.port} is already in use. Trying another port.")
-                self.port += 1
-                self.redirect_uri = f'http://localhost:{self.port}'
-                return await self.set_user_auth(auth_code)
-            else:
-                logger.error(f"Error setting user auth: {e}")
-                return False
+
         except Exception as e:
             logger.error(f"Error setting user auth: {e}")
             return False
