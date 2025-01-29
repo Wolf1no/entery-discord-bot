@@ -266,25 +266,47 @@ async def setup_auth(ctx):
             auth_manager = TwitchAuthManager(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL_NAME)
             await auth_manager.initialize()
         
+        # Send initial message
+        initial_embed = discord.Embed(
+            title="🔐 Nastavení Twitch autentizace",
+            description="Generuji autentizační odkaz...\nProsím čekejte...",
+            color=discord.Color.blue()
+        )
+        setup_msg = await ctx.send(embed=initial_embed)
+        
+        # Get authentication URL
         auth_url = await auth_manager.generate_auth_url()
         if auth_url:
-            embed = discord.Embed(
-                title="🔐 Twitch Authentication Setup",
+            auth_embed = discord.Embed(
+                title="🔐 Nastavení Twitch autentizace",
                 description=(
                     "**Pokyny:**\n\n"
-                    "1. Klikni na odkaz níže\n"
-                    "2. Přihlaš se na Twitch\n"
-                    "3. Po přihlášení tě to přesměruje na stránku s kódem v URL\n"
-                    "4. Zkopíruj URL a pošli ho sem\n\n"
-                    
-                    f"**Authentication URL:**\n{auth_url}"
+                    "1. Klikni na autentizační odkaz níže\n"
+                    "2. Přihlaš se na Twitch a povol přístup\n"
+                    "3. Po přesměrování zkopíruj celou URL adresu\n"
+                    "4. Vložte zkopírovanou URL sem pomocí příkazu:\n"
+                    "`!completeauth <url>`\n\n"
+                    f"**Autentizační odkaz:**\n{auth_url}"
                 ),
                 color=discord.Color.blue()
             )
-            await ctx.send(embed=embed)
+            await setup_msg.edit(embed=auth_embed)
+        else:
+            error_embed = discord.Embed(
+                title="❌ Chyba",
+                description="Nepodařilo se vygenerovat autentizační odkaz. Prosím zkuste to znovu později.",
+                color=discord.Color.red()
+            )
+            await setup_msg.edit(embed=error_embed)
+            
     except Exception as e:
         logger.error(f"Error in setup_auth: {e}")
-        await ctx.send("❌ Nastala chyba při generování auth URL.")
+        error_embed = discord.Embed(
+            title="❌ Chyba",
+            description="Nastala neočekávaná chyba při generování autentizačního odkazu. Prosím zkuste to znovu později.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=error_embed)
 
 @bot.command(name='completeauth')
 @commands.has_permissions(administrator=True)
