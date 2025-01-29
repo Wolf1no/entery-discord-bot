@@ -257,7 +257,7 @@ async def on_ready():
         logger.error("Failed to initialize Twitch API on startup")
 
 @bot.command(name='setupauth')
-@commands.has_permissions(administrator=True)  # This ensures only admins can use it
+@commands.has_permissions(administrator=True)
 async def setup_auth(ctx):
     """Generate Twitch authentication URL"""
     try:
@@ -266,17 +266,17 @@ async def setup_auth(ctx):
             auth_manager = TwitchAuthManager(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL_NAME)
             await auth_manager.initialize()
         
-        auth_url = await auth_manager.generate_auth_url()
+        auth_url = auth_manager.generate_auth_url()
         if auth_url:
             embed = discord.Embed(
                 title="🔐 Twitch Authentication Setup",
                 description=(
-                    "**Pokyny pro vlastníka kanálu:**\n\n"
+                    "**Pokyny:**\n\n"
                     "1. Klikni na odkaz níže\n"
-                    "2. Přihlaš se do Twitche\n"
-                    "3. Po přihlášení budeš přesměrován na stránku s kódem v URL\n"
-                    "4. Zkopíruj kód z URL (část po `code=`) a pošli ho sem\n"
-                    "5. Použij příkaz: `!completeauth <code>`\n\n"
+                    "2. Přihlaš se na Twitch\n"
+                    "3. Po přihlášení tě to přesměruje na stránku s kódem v URL\n"
+                    "4. Zkopíruj URL a pošli ho sem\n\n"
+                    
                     f"**Authentication URL:**\n{auth_url}"
                 ),
                 color=discord.Color.blue()
