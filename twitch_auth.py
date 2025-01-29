@@ -29,8 +29,13 @@ class TwitchAuthManager:
         if not self.twitch:
             await self.initialize()
         
-        self.auth = UserAuthenticator(self.twitch, self.auth_scope, force_verify=False, url=self.redirect_uri)
-        return await self.auth.generate_url()  # Use generate_url() instead of url property
+        self.auth = UserAuthenticator(
+            self.twitch, 
+            self.auth_scope, 
+            force_verify=False,
+            url=self.redirect_uri
+        )
+        return self.auth.get_authorization_code_url()  # Use this method instead of generate_url
 
     async def set_user_auth(self, auth_code):
         try:
