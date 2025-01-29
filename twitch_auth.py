@@ -35,7 +35,8 @@ class TwitchAuthManager:
             force_verify=False,
             url=self.redirect_uri
         )
-        return self.auth.get_authorization_code_url()  # Use this method instead of generate_url
+        # Access the URL property directly
+        return self.auth.url
 
     async def set_user_auth(self, auth_code):
         try:
