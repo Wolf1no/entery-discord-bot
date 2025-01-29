@@ -266,7 +266,7 @@ async def setup_auth(ctx):
             auth_manager = TwitchAuthManager(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL_NAME)
             await auth_manager.initialize()
         
-        auth_url = await auth_manager.generate_auth_url()  # Add await here
+        auth_url = await auth_manager.generate_auth_url()  # Keep the await here
         if auth_url:
             embed = discord.Embed(
                 title="🔐 Twitch Authentication Setup",
