@@ -266,12 +266,13 @@ async def setup_auth(ctx):
             auth_manager = TwitchAuthManager(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL_NAME)
             await auth_manager.initialize()
         
-        # Send initial message
+        # Send initial status message
         initial_embed = discord.Embed(
-            title="🔐 Nastavení Twitch autentizace",
-            description="Generuji autentizační odkaz...\nProsím čekejte...",
-            color=discord.Color.blue()
+            title="🔄 Inicializace Twitch autentizace",
+            description="```diff\n+ Generuji bezpečný autentizační odkaz...\n```",
+            color=0x9147ff  # Twitch purple
         )
+        initial_embed.set_footer(text=f"Požadavek od {ctx.author.name} • {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
         setup_msg = await ctx.send(embed=initial_embed)
         
         # Get authentication URL
@@ -280,41 +281,57 @@ async def setup_auth(ctx):
             auth_embed = discord.Embed(
                 title="🔐 Nastavení Twitch autentizace",
                 description=(
-                    "**Pokyny:**\n\n"
-                    "1. Klikni na autentizační odkaz níže\n"
-                    "2. Přihlaš se na Twitch a povol přístup\n"
-                    "3. Po přesměrování zkopíruj celou URL adresu\n"
-                    "4. Vložte zkopírovanou URL sem pomocí příkazu:\n"
-                    "`!completeauth <url>`\n\n"
-                    f"**Autentizační odkaz:**\n{auth_url}"
+                    "```ini\n[Systém připraven k autentizaci]\n```\n"
+                    "**Postup autentizace:**\n\n"
+                    "**`1️⃣`** Klikni na autentizační odkaz níže\n"
+                    "**`2️⃣`** Přihlaš se na Twitch a povol přístup\n"
+                    "**`3️⃣`** Po přesměrování na localhost zkopíruj **celou** URL\n"
+                    "**`4️⃣`** Použij příkaz:\n"
+                    "```\n!completeauth <zkopírovaná-url>\n```\n"
+                    f"**🔗 Autentizační odkaz:**\n```\n{auth_url}\n```"
                 ),
-                color=discord.Color.blue()
+                color=0x9147ff
             )
+            auth_embed.set_footer(text=f"Vygenerováno pro {ctx.author.name} • {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
             await setup_msg.edit(embed=auth_embed)
         else:
             error_embed = discord.Embed(
-                title="❌ Chyba",
-                description="Nepodařilo se vygenerovat autentizační odkaz. Prosím zkuste to znovu později.",
+                title="❌ Chyba při generování",
+                description=(
+                    "```diff\n- Nepodařilo se vygenerovat autentizační odkaz\n```\n"
+                    "**Možné příčiny:**\n"
+                    "• Problém s připojením k Twitch API\n"
+                    "• Neplatné přihlašovací údaje\n"
+                    "• Dočasná nedostupnost služby"
+                ),
                 color=discord.Color.red()
             )
             await setup_msg.edit(embed=error_embed)
             
     except Exception as e:
         logger.error(f"Error in setup_auth: {e}")
-        error_embed = discord.Embed(
-            title="❌ Chyba",
-            description="Nastala neočekávaná chyba při generování autentizačního odkazu. Prosím zkuste to znovu později.",
-            color=discord.Color.red()
+        await ctx.send(
+            embed=discord.Embed(
+                title="⚠️ Systémová chyba",
+                description="```diff\n- Nastala neočekávaná chyba\n```\nProsím, kontaktujte administrátora.",
+                color=discord.Color.red()
+            )
         )
-        await ctx.send(embed=error_embed)
 
 @bot.command(name='completeauth')
 @commands.has_permissions(administrator=True)
 async def complete_auth(ctx, auth_code: str):
-    """Complete the authentication process with the code"""
+    """Complete the authentication process"""
     try:
-        # Delete the message to keep the auth code private
-        await ctx.message.delete()
+        await ctx.message.delete()  # Delete the message containing the auth code
+        
+        # Send initial status
+        status_embed = discord.Embed(
+            title="🔄 Zpracování autentizace",
+            description="```yaml\nProbíhá ověření a nastavení...\n```",
+            color=0x9147ff
+        )
+        status_msg = await ctx.send(embed=status_embed)
         
         global auth_manager, twitch
         if not auth_manager:
@@ -323,61 +340,151 @@ async def complete_auth(ctx, auth_code: str):
             
         if await auth_manager.set_user_auth(auth_code):
             twitch = auth_manager.twitch
-            embed = discord.Embed(
-                title="✅ Autentizace Úspěšná",
-                description="Twitch autentizace byla úspěšně dokončena!",
+            success_embed = discord.Embed(
+                title="✅ Autentizace úspěšná",
+                description=(
+                    "```diff\n+ Twitch autentizace byla úspěšně dokončena!\n```\n"
+                    "**Provedené akce:**\n"
+                    "• Ověření autentizačního kódu\n"
+                    "• Nastavení Twitch API\n"
+                    "• Aktivace synchronizace rolí"
+                ),
                 color=discord.Color.green()
             )
-            await ctx.send(embed=embed)
+            success_embed.set_footer(text=f"Dokončeno • {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+            await status_msg.edit(embed=success_embed)
         else:
-            await ctx.send("❌ Nepodařilo se dokončit autentizaci. Zkus to prosím znovu.")
+            error_embed = discord.Embed(
+                title="❌ Chyba autentizace",
+                description=(
+                    "```diff\n- Nepodařilo se dokončit autentizaci\n```\n"
+                    "**Možné příčiny:**\n"
+                    "• Neplatný nebo expirovaný kód\n"
+                    "• Chyba při komunikaci s Twitch API\n"
+                    "• Nedostatečná oprávnění\n\n"
+                    "Prosím, vygenerujte nový autentizační odkaz pomocí `!setupauth`"
+                ),
+                color=discord.Color.red()
+            )
+            await status_msg.edit(embed=error_embed)
     except Exception as e:
         logger.error(f"Error in complete_auth: {e}")
-        await ctx.send("❌ Nastala chyba při dokončování autentizace.")
-        
+        await ctx.send(
+            embed=discord.Embed(
+                title="⚠️ Chyba při autentizaci",
+                description="```diff\n- Nastala neočekávaná chyba při dokončování autentizace\n```",
+                color=discord.Color.red()
+            )
+        )
+
 @bot.command(name='link')
 async def link_account(ctx, twitch_username: str = None):
+    """Link Discord account with Twitch account"""
     if not twitch_username:
-        await ctx.send("❌ Prosím zadej svoje Twitch uživatelské jméno: `!link <twitch_username>`")
+        await ctx.send(
+            embed=discord.Embed(
+                title="❌ Chybí uživatelské jméno",
+                description="```diff\n- Prosím zadej svoje Twitch uživatelské jméno\n```\n**Použití:**\n`!link <twitch_username>`",
+                color=discord.Color.red()
+            )
+        )
         return
 
     twitch_username = twitch_username.lower()
     discord_id = str(ctx.author.id)
     
-    verified_users[discord_id] = twitch_username
-    save_verified_users()
-    
-    embed = discord.Embed(
-        title="✅ Účty propojeny",
-        description=f"Tvůj Discord účet byl úspěšně propojen s Twitch účtem: **{twitch_username}**",
-        color=discord.Color.green()
+    # Send initial status
+    status_embed = discord.Embed(
+        title="🔄 Probíhá propojení účtů",
+        description="```yaml\nUkládám propojení účtů...\n```",
+        color=0x9147ff
     )
-    embed.add_field(name="Co dál?", value="Použij `!check` pro kontrolu statusu rolí", inline=False)
+    status_msg = await ctx.send(embed=status_embed)
     
-    await ctx.send(embed=embed)
-    await sync_roles_task()
+    try:
+        verified_users[discord_id] = twitch_username
+        save_verified_users()
+        
+        success_embed = discord.Embed(
+            title="✅ Účty úspěšně propojeny",
+            description=(
+                f"```diff\n+ Discord účet byl propojen s Twitch účtem\n```\n"
+                f"**Twitch účet:** `{twitch_username}`\n"
+                f"**Discord účet:** {ctx.author.mention}\n\n"
+                "**Další kroky:**\n"
+                "• Použij `!check` pro kontrolu statusu rolí\n"
+                "• Role se synchronizují automaticky každých 24 hodin\n"
+                "• Administrátor může vynutit okamžitou synchronizaci"
+            ),
+            color=discord.Color.green()
+        )
+        success_embed.set_footer(text=f"Propojeno • {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        await status_msg.edit(embed=success_embed)
+        await sync_roles_task()
+        
+    except Exception as e:
+        logger.error(f"Error in link_account: {e}")
+        error_embed = discord.Embed(
+            title="❌ Chyba při propojování",
+            description="```diff\n- Nastala chyba při propojování účtů\n```",
+            color=discord.Color.red()
+        )
+        await status_msg.edit(embed=error_embed)
 
 @bot.command(name='unlink')
 async def unlink_account(ctx):
+    """Unlink Discord account from Twitch account"""
     discord_id = str(ctx.author.id)
-    if discord_id in verified_users:
-        del verified_users[discord_id]
-        save_verified_users()
-        
-        embed = discord.Embed(
-            title="✅ Účty odpojeny",
-            description="Tvůj Discord účet byl úspěšně odpojen od Twitch účtu",
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=embed)
-        await sync_roles_task()
-    else:
-        embed = discord.Embed(
-            title="❌ Účet není propojen",
-            description="Tvůj Discord účet není propojen s žádným Twitch účtem.\nPoužij `!link <twitch_username>` pro propojení účtů.",
+    
+    status_embed = discord.Embed(
+        title="🔄 Kontrola propojení",
+        description="```yaml\nKontroluji propojení účtů...\n```",
+        color=0x9147ff
+    )
+    status_msg = await ctx.send(embed=status_embed)
+    
+    try:
+        if discord_id in verified_users:
+            twitch_username = verified_users[discord_id]
+            del verified_users[discord_id]
+            save_verified_users()
+            
+            success_embed = discord.Embed(
+                title="✅ Účty odpojeny",
+                description=(
+                    "```diff\n+ Účty byly úspěšně odpojeny\n```\n"
+                    f"**Odpojený Twitch účet:** `{twitch_username}`\n"
+                    f"**Discord účet:** {ctx.author.mention}\n\n"
+                    "**Info:**\n"
+                    "• VIP/SUB role budou odebrány při příští synchronizaci\n"
+                    "• Pro opětovné propojení použij `!link <twitch_username>`"
+                ),
+                color=discord.Color.green()
+            )
+            success_embed.set_footer(text=f"Odpojeno • {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+            await status_msg.edit(embed=success_embed)
+            await sync_roles_task()
+        else:
+            not_linked_embed = discord.Embed(
+                title="❌ Účet není propojen",
+                description=(
+                    "```diff\n- Tvůj Discord účet není propojen s žádným Twitch účtem\n```\n"
+                    "**Jak propojit účty:**\n"
+                    "• Použij příkaz `!link <twitch_username>`\n"
+                    "• Po propojení použij `!check` pro kontrolu"
+                ),
+                color=discord.Color.red()
+            )
+            await status_msg.edit(embed=not_linked_embed)
+            
+    except Exception as e:
+        logger.error(f"Error in unlink_account: {e}")
+        error_embed = discord.Embed(
+            title="⚠️ Chyba při odpojování",
+            description="```diff\n- Nastala neočekávaná chyba při odpojování účtů\n```",
             color=discord.Color.red()
         )
-        await ctx.send(embed=embed)
+        await status_msg.edit(embed=error_embed)
 
 @bot.command(name='check')
 async def check_status(ctx):
