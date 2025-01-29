@@ -23,22 +23,23 @@ class TwitchAuthManager:
 
     async def initialize(self):
         self.twitch = await Twitch(self.client_id, self.client_secret)
-        # Create UserAuthenticator with correct parameter order
-        self.auth = UserAuthenticator(
-            self.twitch,
-            self.auth_scope,
-            self.redirect_uri  # Pass redirect_uri directly
-        )
         return self.twitch
 
     async def generate_auth_url(self):
-        if not self.twitch or not self.auth:
-            await self.initialize()
-            
         try:
-            # Get authorization URL using get_authorization_url()
-            auth_url = await self.auth.get_authorization_url()
-            return auth_url
+            if not self.twitch:
+                await self.initialize()
+            
+            # Create a new UserAuthenticator instance
+            self.auth = UserAuthenticator(
+                self.twitch,
+                self.auth_scope,
+                self.redirect_uri
+            )
+            
+            # Use the UserAuthenticator's built-in OAuth flow
+            return await self.auth.authenticate()
+            
         except Exception as e:
             logger.error(f"Error generating auth URL: {e}")
             return None
@@ -46,7 +47,7 @@ class TwitchAuthManager:
     async def set_user_auth(self, auth_code):
         try:
             if not self.auth:
-                await self.initialize()
+                self.auth = UserAuthenticator(self.twitch, self.auth_scope, self.redirect_uri)
             
             token, refresh_token = await self.auth.authenticate(auth_code)
             await self.twitch.set_user_authentication(token, refresh_token, self.auth_scope)
