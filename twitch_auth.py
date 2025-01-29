@@ -24,9 +24,9 @@ class TwitchAuthManager:
         self.twitch = await Twitch(self.client_id, self.client_secret)
         return self.twitch
 
-    async def generate_auth_url(self):
+    def generate_auth_url(self):
         auth = UserAuthenticator(self.twitch, self.auth_scope, force_verify=False, url=self.redirect_uri)
-        return auth.get_auth_url()
+        return auth.url  # Correct method to get the URL
 
     async def set_user_auth(self, auth_code):
         try:
