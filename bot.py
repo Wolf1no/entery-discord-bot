@@ -1,4 +1,4 @@
-fimport discord
+import discord
 from discord.ext import commands, tasks
 from twitchAPI.twitch import Twitch
 from twitchAPI.type import AuthScope
